@@ -1,0 +1,55 @@
+# === Secretos y llaves ===
+# NUNCA subir llaves privadas
+*.key
+*private*
+secrets.yml
+vault.yml
+*.pem
+
+# Configuración local de WireGuard con llaves
+homelab.conf
+
+# === Ansible ===
+# Archivos de reintentos
+*.retry
+
+# Caché de facts
+.ansible/
+ansible_facts/
+
+# Logs
+*.log
+
+# === Sistema ===
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+.nfs*
+
+# === Editores ===
+# VSCode
+.vscode/
+*.code-workspace
+
+# JetBrains (PyCharm, etc)
+.idea/
+
+# Vim
+*.swp
+*.swo
+*.swn
+
+# === Python (si usas scripts) ===
+__pycache__/
+*.py[cod]
+venv/
+.env
+
+# === Temporales ===
+*.tmp
+*.bak
+*.backup
