@@ -65,7 +65,7 @@ Internet
 
 ```bash
 # Clonar el repositorio
-git clone <tu-repo>
+git clone git@github.com:KrlosAren/aren-house.git
 cd aren-house
 
 # Configurar Ansible
