@@ -77,3 +77,15 @@ ansible-playbook playbooks/gateway.yml
 ```
 
 Para más detalles, ver la documentación de cada componente.
+
+## Documentación
+
+| Tipo | Ubicación | Descripción |
+|------|-----------|-------------|
+| **Componentes** | `{componente}/README.md` | Configuración detallada de cada servicio |
+| **Decisiones** | [docs/decisions/](docs/decisions/) | Por qué elegí cada tecnología (ADRs) |
+
+### Decisiones Arquitectónicas (ADRs)
+
+- [001 - WireGuard sobre OpenVPN](docs/decisions/001-wireguard-over-openvpn.md)
+- [002 - Segmentación de red con Raspberry Pi](docs/decisions/002-network-segmentation.md)
