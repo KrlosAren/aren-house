@@ -34,9 +34,12 @@ Internet
 
 ## Hardware
 
-- 3x Raspberry Pi 5 (Ubuntu Server)
-- 1x Switch TP-Link SG105PE (PoE+)
-- 1x Adaptador USB-Ethernet
+| Dispositivo | Rol | Notas |
+|-------------|-----|-------|
+| Raspberry Pi 5 (gateway) | Router/VPN | Fuente dedicada, 2 interfaces de red |
+| Raspberry Pi 5 x2 (nodos) | Workers | Alimentados por PoE |
+| Switch TP-Link SG105PE | Red interna | 5 puertos Gigabit, 4 PoE+ |
+| Adaptador USB-Ethernet | WAN del gateway | Conexión al modem |
 
 ## Redes
 
