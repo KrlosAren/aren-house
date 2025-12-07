@@ -1,0 +1,15 @@
+
+---
+  - name:
+    hosts: gateway
+    become: yes
+
+    tasks:
+      - name: Update package list
+        apt:
+          update_cache: yes
+      
+      - name: Instalar HTOP
+        apt:
+          name: htop
+          state: present

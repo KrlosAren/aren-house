@@ -1,0 +1,13 @@
+---
+- name: Configure Gateway
+  hosts: gateway
+  become: yes
+
+  vars:
+    wireguard_peers:
+      - name: mac-aren
+        public_key: "yhk7pujehS6ZxKSPNWdWveGweO6/uVj6Z0p81H8nnkg="
+        allowed_ips: "10.0.1.2/32"
+
+  roles:
+    - wireguard

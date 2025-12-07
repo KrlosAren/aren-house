@@ -1,0 +1,65 @@
+---
+- name: Configure WireGuard VPN
+  hosts: gateway
+  become: yes
+
+  vars:
+    wg_address: "10.0.1.1/24"
+    wg_port: 51820
+
+  tasks:
+    - name: Install WireGuard
+      apt:
+        name: wireguard
+        state: present
+        update_cache: yes
+
+    - name: Validate if private key file exists
+      stat:
+        path: /etc/wireguard/private.key
+      register: private_key
+
+    - name: Generate WireGuard private key
+      shell: wg keygen > /etc/wireguard/private.key
+      when: not private_key.stat.exists
+
+    - name: Protect private key
+      file:
+        path: /etc/wireguard/private.key
+        mode: "600"
+
+    - name: Generate WireGuard public key
+      shell: cat /etc/wireguard/private.key | wg pubkey > /etc/wireguard/public.key
+      when: not private_key.stat.exists
+
+    - name: Read private key
+      slurp:
+        src: /etc/wireguard/private.key
+      register: wg_private_key
+
+    - name: Create WireGuard configuration file
+      copy:
+        dest: /etc/wireguard/wg0.conf
+        mode: "600"
+        content: |
+          [Interface]
+          Address = {{ wg_address }}
+          ListenPort = {{ wg_port }}
+          PrivateKey = {{ wg_private_key.content | b64decode | trim }}
+
+          PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT
+          PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT
+      notify:
+        - Restart WireGuard
+
+    - name: Enable and start WireGuard service
+      systemd:
+        name: wg-quick@wg0
+        enabled: yes
+        state: started
+
+  handlers:
+    - name: Restart WireGuard
+      systemd:
+        name: wg-quick@wg0
+        state: restarted

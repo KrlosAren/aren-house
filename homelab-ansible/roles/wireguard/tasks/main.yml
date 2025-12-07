@@ -1,0 +1,51 @@
+---
+- name: Install WireGuard
+  apt:
+    name: wireguard
+    state: present
+    update_cache: yes
+
+- name: Verify if private key exists
+  stat:
+    path: /etc/wireguard/private.key
+  register: private_key_file
+
+- name: Generate private key
+  shell: wg genkey > /etc/wireguard/private.key
+  when: not private_key_file.stat.exists
+
+- name: Protect private key
+  file:
+    path: /etc/wireguard/private.key
+    mode: "0600"
+
+- name: Ensure public key exists
+  stat:
+    path: /etc/wireguard/public.key
+  register: public_key_file
+
+- name: Generate public key
+  shell: cat /etc/wireguard/private.key | wg pubkey > /etc/wireguard/public.key
+  when: not public_key_file.stat.exists or public_key_file.stat.size == 0
+
+- name: Read private key
+  slurp:
+    src: /etc/wireguard/private.key
+  register: private_key_content
+
+- name: Set private key
+  set_fact:
+    wireguard_private_key: "{{ private_key_content.content | b64decode | trim }}"
+
+- name: Create WireGuard configuration
+  template:
+    src: wg0.conf.j2
+    dest: "/etc/wireguard/{{ wireguard_interface }}.conf"
+    mode: "0600"
+  notify: Restart WireGuard
+
+- name: Enable WireGuard
+  systemd:
+    name: "wg-quick@{{ wireguard_interface }}"
+    enabled: yes
+    state: started
