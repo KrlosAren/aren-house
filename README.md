@@ -92,3 +92,5 @@ Para más detalles, ver la documentación de cada componente.
 
 - [001 - WireGuard sobre OpenVPN](docs/decisions/001-wireguard-over-openvpn.md)
 - [002 - Segmentación de red con Raspberry Pi](docs/decisions/002-network-segmentation.md)
+- [003 - Configuracion de DNS/DHCP/TFTP (dnsmasq)](docs/decisions/003-dnsmasq-dhcp-dns-tftp.md)
+
