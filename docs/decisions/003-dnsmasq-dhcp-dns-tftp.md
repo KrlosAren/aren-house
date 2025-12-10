@@ -2,6 +2,7 @@
 
 **Fecha:** 2025-12-08
 **Estado:** Aceptado
+**Relacionado:** [ADR-002 Segmentación de red](002-network-segmentation.md)
 
 ## Contexto
 
@@ -29,7 +30,7 @@ Usar **dnsmasq** como servidor unificado para DHCP, DNS y TFTP.
 ### Negativas
 - **Menos flexible**: Para configuraciones DNS complejas, bind9 es más potente
 - **Sin interfaz gráfica**: Pi-hole podría agregarse después para dashboard y bloqueo de ads
-- **!Importante**: Estas configuraciones tienen puntos positivos tienen un punto negativo gigante, si el master falla, todo falla
+- **Single point of failure**: Si el servidor dnsmasq falla, DHCP/DNS/TFTP dejan de funcionar para toda la red
 
 ## Configuración clave
 ```
@@ -46,5 +47,14 @@ domain=homelab.local
 | Servicio | Puerto | Función |
 |----------|--------|---------|
 | DHCP | 67/udp | Asignación de IPs |
-| DNS | 53/udp | Resolución de nombres |
+| DNS | 53/udp,tcp | Resolución de nombres |
 | TFTP | 69/udp | Archivos de boot PXE |
+
+## Mitigaciones futuras
+
+Para reducir el riesgo del single point of failure:
+
+- **Leases DHCP largos (24h)**: Los dispositivos mantienen su IP aunque dnsmasq caiga temporalmente
+- **Segundo dnsmasq en standby**: Configurar otro nodo con la misma configuración como backup
+- **Keepalived + IP virtual**: Alta disponibilidad con failover automático entre dos instancias
+- **IPs estáticas en servicios críticos**: Configurar IPs fijas a nivel de SO para el gateway y servicios esenciales, independiente de DHCP
