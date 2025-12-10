@@ -1,0 +1,44 @@
+# ===========================================
+# dnsmasq - DHCP + TFTP para homelab
+# Managed by Ansible - Do not edit manually
+# ===========================================
+
+# Interfaz - solo escuchar en la red interna
+interface={{ dnsmasq_interface }}
+bind-interfaces
+
+# No usar /etc/resolv.conf del sistema
+no-resolv
+
+# DNS upstream
+{% for server in dnsmasq_dns_servers %}
+server={{ server }}
+{% endfor %}
+
+# Dominio local
+domain={{ dnsmasq_domain }}
+local=/{{ dnsmasq_domain }}/
+
+# ----- DHCP -----
+dhcp-range={{ dnsmasq_network.range_start }},{{ dnsmasq_network.range_end }},{{ dnsmasq_network.lease_time }}
+dhcp-option=option:router,{{ dnsmasq_network.gateway }}
+dhcp-option=option:dns-server,{{ dnsmasq_network.gateway }}
+
+# IPs fijas por MAC
+{% for host in dnsmasq_hosts %}
+dhcp-host={{ host.mac }},{{ host.name }},{{ host.ip }},infinite
+{% endfor %}
+
+# ----- TFTP + PXE Boot -----
+enable-tftp
+tftp-root={{ dnsmasq_tftp_root }}
+pxe-service=0,"Raspberry Pi Boot"
+
+# ----- Logging -----
+{% if dnsmasq_log_queries %}
+log-queries
+{% endif %}
+{% if dnsmasq_log_dhcp %}
+log-dhcp
+{% endif %}
+log-facility={{ dnsmasq_log_file }}

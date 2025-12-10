@@ -1,0 +1,13 @@
+---
+- name: Restart dnsmasq
+  systemd:
+    name: dnsmasq
+    state: restarted
+
+- name: Reload dnsmasq
+  systemd:
+    name: dnsmasq
+    state: reloaded
+
+- name: Apply netplan
+  command: netplan apply

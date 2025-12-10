@@ -1,0 +1,33 @@
+# Interfaz de red interna
+dnsmasq_interface: eth0
+
+# DNS upstream
+dnsmasq_dns_servers:
+  - 1.1.1.1
+  - 8.8.8.8
+
+# dominio local
+dnsmasq_domain: homelab.local
+
+# red interna
+dnsmasq_network:
+  gateway: 10.0.0.1
+  netmask: 255.255.255.0
+  range_start: 10.0.0.100
+  range_end: 10.0.0.200
+  lease_time: 24h
+
+# TFTP
+dnsmasq_tftp_root: /srv/tftp
+
+# hosts con ip fija (se definen en el playbook)
+dnsmasq_hosts: []
+
+
+# Log
+dnsmasq_log_queries: true
+dnsmasq_log_dhcp: true
+dnsmasq_log_file: /var/log/dnsmasq.log
+
+# Interfaz WAN (hacia el modem)
+dnsmasq_wan_interface: enx00e04c683da2

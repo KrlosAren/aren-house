@@ -1,0 +1,14 @@
+network:
+  version: 2
+  ethernets:
+    {{ dnsmasq_interface }}:
+      dhcp4: false
+      addresses:
+        - {{ dnsmasq_network.gateway }}/24
+      nameservers:
+        addresses:
+          - 127.0.0.1
+        search:
+          - {{ dnsmasq_domain }}
+    {{ dnsmasq_wan_interface | default('enx00e04c683da2') }}:
+      dhcp4: true

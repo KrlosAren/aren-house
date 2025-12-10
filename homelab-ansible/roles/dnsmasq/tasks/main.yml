@@ -1,0 +1,44 @@
+---
+- name: Install dnsmasq
+  apt:
+    name: dnsmasq
+    state: present
+    update_cache: yes
+
+- name: Stop dnsmasq for configuration
+  systemd:
+    name: dnsmasq
+    state: stopped
+
+- name: Backup original dnsmasq.conf
+  copy:
+    src: /etc/dnsmasq.conf
+    dest: /etc/dnsmasq.conf.backup
+    remote_src: yes
+    force: no
+
+- name: Create log file
+  file:
+    path: "{{ dnsmasq_log_file }}"
+    state: touch
+    mode: "0644"
+
+- name: Configure dnsmasq
+  template:
+    src: dnsmasq.conf.j2
+    dest: /etc/dnsmasq.conf
+  notify: Restart dnsmasq
+
+- name: Enable and start dnsmasq
+  systemd:
+    name: dnsmasq
+    enabled: yes
+    state: started
+
+- name: Configure DNS in netplan
+  template: 
+    src: netplan-dns.yaml.j2
+    dest: /etc/netplan/01-network.yaml
+    mode: "0600"
+  notify: Apply netplan
+

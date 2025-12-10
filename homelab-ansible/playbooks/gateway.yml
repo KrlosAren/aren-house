@@ -4,10 +4,26 @@
   become: yes
 
   vars:
+    # WireGuard perrs
     wireguard_peers:
       - name: mac-aren
         public_key: "yhk7pujehS6ZxKSPNWdWveGweO6/uVj6Z0p81H8nnkg="
         allowed_ips: "10.0.1.2/32"
+    
+    # PXE boot hosts
+    dnsmasq_hosts:
+      - name: rp2
+        mac: "2c:cf:67:88:9e:f5"
+        ip: "10.0.0.2"
+
+      - name: rp3
+        mac: "2c:cf:67:a9:b9:13"
+        ip: "10.0.0.3"
+
+      - name: switch
+        mac: "ec:75:0c:ff:fc:d6"
+        ip: "10.0.0.5"
 
   roles:
     - wireguard
+    - dnsmasq

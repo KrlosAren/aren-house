@@ -1,4 +1,12 @@
 ---
+- name: Enable IP forwarding
+  sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    state: present
+    sysctl_file: /etc/sysctl.d/99-ip-forward.conf
+    reload: yes
+
 - name: Install WireGuard
   apt:
     name: wireguard
