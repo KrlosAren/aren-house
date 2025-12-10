@@ -29,6 +29,7 @@ Usar **dnsmasq** como servidor unificado para DHCP, DNS y TFTP.
 ### Negativas
 - **Menos flexible**: Para configuraciones DNS complejas, bind9 es más potente
 - **Sin interfaz gráfica**: Pi-hole podría agregarse después para dashboard y bloqueo de ads
+- **!Importante**: Estas configuraciones tienen puntos positivos tienen un punto negativo gigante, si el master falla, todo falla
 
 ## Configuración clave
 ```
