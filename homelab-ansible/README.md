@@ -36,6 +36,16 @@ Con WireGuard:
 
 El "salto" sigue existiendo, pero WireGuard lo hace transparente creando una interfaz virtual en mi Mac que simula estar conectado directamente al switch.
 
+### PXE Boot (Netboot)
+
+Los nodos worker (rp2, rp3) bootean desde la red, sin necesidad de microSD. El gateway (rp1-master) sirve:
+
+- **DHCP**: Asigna IPs fijas por MAC address
+- **TFTP**: Sirve kernel y archivos de boot
+- **NFS**: Proporciona el root filesystem
+
+Esto permite gestionar los nodos de forma centralizada y facilita la recuperación ante fallos.
+
 ## Arquitectura
 ```
 Internet
@@ -46,10 +56,9 @@ Internet
     │   ┌──────────────────────────────────────────────┐
     │   │              RED HOMELAB                     │
     │   │                                              │
-    └───┼── [USB] RPi Gateway [eth0] ─── Switch ───┬── RPi 2
-        │        192.168.1.84 │ 10.0.0.1           ├── RPi 3
-        │                     │                    └── (expansión)
-        │                     │                         10.0.0.x
+    └───┼── [USB] RPi Gateway [eth0] ─── Switch ───┬── RPi 2 (netboot)
+        │        192.168.1.84 │ 10.0.0.1           ├── RPi 3 (netboot)
+        │                     │                    └── 10.0.0.x
         │   ┌─────────────────┘
         │   │ WireGuard VPN
         │   │ 10.0.1.0/24
@@ -58,6 +67,23 @@ Internet
             │
      Mac ───┘ (10.0.1.2 via VPN)
 ```
+
+## Dispositivos
+
+| Dispositivo | IP | MAC | Rol |
+|-------------|-----|-----|-----|
+| rp1-master | 10.0.0.1 | 2c:cf:67:a9:b8:51 | Gateway, DHCP, DNS, TFTP, NFS |
+| rp2 | 10.0.0.2 | 2c:cf:67:88:9e:f5 | Nodo worker (netboot) |
+| rp3 | 10.0.0.3 | 2c:cf:67:a9:b9:13 | Nodo worker (netboot) |
+| switch | 10.0.0.5 | ec:75:0c:ff:fc:d6 | TP-Link SG105PE |
+
+## Redes
+
+| Red | Rango | Propósito |
+|-----|-------|-----------|
+| LAN Casa | 192.168.1.0/24 | Red principal del modem |
+| LAN Homelab | 10.0.0.0/24 | Red interna segmentada |
+| VPN | 10.0.1.0/24 | Acceso remoto via WireGuard |
 
 ## Requisitos
 
@@ -144,19 +170,27 @@ homelab-ansible/
 ├── playbooks/
 │   └── gateway.yml
 └── roles/
-    └── wireguard/
+    ├── wireguard/
+    │   ├── defaults/main.yml
+    │   ├── handlers/main.yml
+    │   ├── tasks/main.yml
+    │   └── templates/wg0.conf.j2
+    └── dnsmasq/
         ├── defaults/main.yml
         ├── handlers/main.yml
         ├── tasks/main.yml
-        └── templates/wg0.conf.j2
+        ├── templates/
+        │   ├── dnsmasq.conf.j2
+        │   └── netplan-dns.yaml.j2
+        └── README.md
 ```
 
 ## Configuración de Ansible
 
 ### 1. Clonar repositorio
 ```bash
-git clone <tu-repo>
-cd homelab-ansible
+git clone git@github.com:KrlosAren/aren-house.git
+cd aren-house/homelab-ansible
 ```
 
 ### 2. Configurar inventario
@@ -192,13 +226,16 @@ rp1-master | SUCCESS => {
 ansible-playbook playbooks/gateway.yml
 ```
 
+### Modo dry-run (verificar sin aplicar)
+```bash
+ansible-playbook playbooks/gateway.yml --check
+```
+
 ## Roles
 
 ### wireguard
 
-Instala y configura WireGuard VPN.
-
-**Variables:**
+Instala y configura WireGuard VPN para acceso remoto seguro.
 
 | Variable | Default | Descripción |
 |----------|---------|-------------|
@@ -214,6 +251,34 @@ wireguard_peers:
     public_key: "yhk7pujehS6ZxKSPNWdWveGweO6/uVj6Z0p81H8nnkg="
     allowed_ips: "10.0.1.2/32"
 ```
+
+### dnsmasq
+
+Instala y configura dnsmasq como servidor DHCP, DNS y TFTP.
+
+| Variable | Default | Descripción |
+|----------|---------|-------------|
+| `dnsmasq_interface` | `eth0` | Interfaz de red interna |
+| `dnsmasq_domain` | `homelab.local` | Dominio local |
+| `dnsmasq_network.gateway` | `10.0.0.1` | IP del gateway |
+| `dnsmasq_tftp_root` | `/srv/tftp` | Directorio raíz TFTP |
+| `dnsmasq_hosts` | `[]` | Lista de hosts con IP fija |
+
+**Ejemplo de hosts:**
+```yaml
+dnsmasq_hosts:
+  - name: rp2
+    mac: "2c:cf:67:88:9e:f5"
+    ip: "10.0.0.2"
+  - name: rp3
+    mac: "2c:cf:67:a9:b9:13"
+    ip: "10.0.0.3"
+  - name: switch
+    mac: "ec:75:0c:ff:fc:d6"
+    ip: "10.0.0.5"
+```
+
+Ver [README del role](roles/dnsmasq/README.md) para más detalles.
 
 ## Conectar cliente WireGuard
 
@@ -246,21 +311,15 @@ sudo wg-quick up ~/homelab.conf
 ```bash
 ping 10.0.1.1   # Gateway VPN
 ping 10.0.0.1   # Red interna
+ping rp2.homelab.local  # DNS local
 ```
-
-## Redes
-
-| Red | Rango | Propósito |
-|-----|-------|-----------|
-| LAN Casa | 192.168.1.0/24 | Red principal del modem |
-| LAN Homelab | 10.0.0.0/24 | Red interna segmentada |
-| VPN | 10.0.1.0/24 | Acceso remoto via túnel |
 
 ## Hardware
 
 - 3x Raspberry Pi 5 (Ubuntu Server)
 - 1x Switch TP-Link SG105PE (PoE+)
 - 1x Adaptador USB-Ethernet
+- 1x SSD 250GB (para TFTP/NFS)
 
 ## Comandos útiles
 ```bash
@@ -279,6 +338,12 @@ sudo wg show
 # Conectar/desconectar VPN (Mac)
 sudo wg-quick up ~/homelab.conf
 sudo wg-quick down ~/homelab.conf
+
+# Ver logs de dnsmasq
+sudo tail -f /var/log/dnsmasq.log
+
+# Probar resolución DNS
+ping rp2.homelab.local
 ```
 
 ## Troubleshooting
@@ -296,23 +361,46 @@ sudo wg-quick down ~/homelab.conf
 2. Verificar inventario: `ansible-inventory --list`
 3. Verificar ping: `ansible all -m ping -vvv`
 
-### "Permission denied" en SSH
+### DNS no resuelve nombres locales
 
-- Verificar que la clave pública está en `~/.ssh/authorized_keys` del RPi
-- Verificar permisos: `chmod 600 ~/.ssh/authorized_keys`
+1. Verificar que dnsmasq está corriendo: `sudo systemctl status dnsmasq`
+2. Verificar netplan: `resolvectl status eth0`
+3. Verificar logs: `sudo tail -f /var/log/dnsmasq.log`
 
-### "Sudo requires password"
+### PXE boot no funciona
 
-- Verificar configuración en `/etc/sudoers` con `sudo visudo`
+1. Verificar TFTP: `sudo ss -ulnp | grep 69`
+2. Verificar archivos: `ls /srv/tftp/`
+3. Verificar NFS exports: `sudo exportfs -v`
+4. Verificar EEPROM de la Pi: `sudo rpi-eeprom-config`
 
 ## Roadmap
 
-- [ ] Configurar firewall (ufw) con reglas entre redes
-- [ ] Configurar DHCP server en gateway
-- [ ] Agregar las otras Raspberry Pi al inventario
-- [ ] Instalar Docker en todos los nodos
-- [ ] Configurar Pi-hole para DNS interno
+- [x] Gateway/Router con Raspberry Pi
+- [x] Segmentación de red
+- [x] VPN con WireGuard
+- [x] DHCP con IPs fijas (dnsmasq)
+- [x] DNS local (.homelab.local)
+- [x] TFTP para PXE boot
+- [x] NFS para root filesystem
+- [x] Netboot de rp2
+- [ ] Role NFS en Ansible
+- [ ] Role storage (SSD) en Ansible
+- [ ] Netboot de rp3
+- [ ] Firewall (ufw)
+- [ ] Docker en nodos
+- [ ] k3s cluster
 - [ ] Monitoreo con Prometheus/Grafana
+
+## Decisiones arquitectónicas
+
+Ver [docs/decisions/](../docs/decisions/) para ADRs completos.
+
+| # | Decisión |
+|---|----------|
+| 001 | [WireGuard sobre OpenVPN](../docs/decisions/001-wireguard-over-openvpn.md) |
+| 002 | [Segmentación de red con Raspberry Pi](../docs/decisions/002-network-segmentation.md) |
+| 003 | [dnsmasq como DHCP, DNS y TFTP](../docs/decisions/003-dnsmasq-dhcp-dns-tftp.md) |
 
 ## Lecciones aprendidas
 
@@ -322,3 +410,7 @@ sudo wg-quick down ~/homelab.conf
 4. **Las llaves públicas van en el peer opuesto** - Fácil de confundir
 5. **Segmentación ≠ Seguridad** - Separar redes es el primer paso, firewall es el segundo
 6. **Documentar mientras construyes** - No después, se olvidan los detalles
+7. **UUID en fstab, no /dev/sdX** - Los nombres de dispositivo pueden cambiar
+8. **nofail en fstab** - Para que el sistema bootee aunque el disco no esté
+9. **IP forwarding es crítico** - Sin él, el routing entre redes no funciona
+10. **Los UIDs difieren entre sistemas** - Cuidado con permisos al copiar filesystems
