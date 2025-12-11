@@ -1,0 +1,12 @@
+---
+# directorio base para NFS
+nfs_base_path: /srv/nfs
+
+# red permitida para NFS
+nfs_network: "10.0.0.0/24"
+
+# opciones de exportacion NFS
+nfs_export_options: "rw,sync,no_subtree_check,no_root_squash"
+
+# Nodos que bootean por NFS (se definen en el playbook)
+nfs_nodes: []

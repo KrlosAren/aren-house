@@ -1,0 +1,7 @@
+# /etc/exports - NFS exports
+# Managed by Ansible - Do not edit manually
+
+{% for node in nfs_nodes %}
+{{ nfs_base_path }}/{{ node.name }} {{ nfs_network }}({{ nfs_export_options }})
+{% endfor %}
+

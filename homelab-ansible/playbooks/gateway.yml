@@ -23,7 +23,15 @@
       - name: switch
         mac: "ec:75:0c:ff:fc:d6"
         ip: "10.0.0.5"
+    
+    # NFS nodes (netboot)
+    nfs_nodes:
+      - name: rp2
+        ip: "10.0.0.2"
+      - name: rp3
+        ip: "10.0.0.3"
 
   roles:
     - wireguard
     - dnsmasq
+    - nfs
