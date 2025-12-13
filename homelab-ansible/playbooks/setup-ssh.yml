@@ -1,0 +1,30 @@
+---
+- name: Get SSH public key from master
+  hosts: gateway
+  tasks:
+    - name: Read public key from master
+      slurp:
+        src: /home/rp1-master/.ssh/id_ed25519.pub
+      register: master_key
+
+    - name: Save key in global variable
+      set_fact:
+        master_public_key: "{{ master_key.content | b64decode | trim }}"
+
+- name: Distribute SSH key to nodes
+  hosts: nodes
+  become: yes
+  tasks:
+    - name: Ensure that the .ssh directory exists
+      file:
+        path: "/home/{{ ansible_user }}/.ssh"
+        state: directory
+        mode: "0700"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Add master's public key to authorized_keys
+      authorized_key:
+        user: "{{ ansible_user }}"
+        key: "{{ hostvars['rp1-master']['master_public_key'] }}"
+        state: present

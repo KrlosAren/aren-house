@@ -7,3 +7,14 @@ all:
           ansible_host: 192.168.1.84
           ansible_user: rp1-master
           ansible_python_interpreter: /usr/bin/python3
+    nodes:
+      hosts:
+        rp2-node:
+          ansible_host: 10.0.0.2
+          ansible_user: rp2-node
+          ansible_python_interpreter: /usr/bin/python3
+          
+        rp3-node:
+          ansible_host: 10.0.0.3
+          ansible_user: rp3-node
+          ansible_python_interpreter: /usr/bin/python3
