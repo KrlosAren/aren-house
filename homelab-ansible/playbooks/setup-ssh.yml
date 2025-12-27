@@ -4,7 +4,7 @@
   tasks:
     - name: Read public key from master
       slurp:
-        src: /home/rp1-master/.ssh/id_ed25519.pub
+        src: /home/admin/.ssh/id_ed25519.pub
       register: master_key
 
     - name: Save key in global variable
