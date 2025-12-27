@@ -1,0 +1,207 @@
+---
+# Playbook: setup-netboot-server.yml
+# Propósito: Configurar estructura NFS y TFTP en el servidor para un nuevo nodo
+#
+# Uso:
+#   ansible-playbook playbooks/setup-netboot-server.yml -e "node_name=rp4 node_serial=abcd1234 node_mac=aa:bb:cc:dd:ee:ff"
+#
+# Variables requeridas (pasar con -e):
+#   - node_name: Nombre del nodo (ej: "rp4")
+#   - node_serial: Últimos 8 caracteres del serial (ej: "02671e08")
+#   - node_mac: MAC address de eth0 (ej: "2c:cf:67:a9:b9:13")
+
+- name: Configurar servidor para netboot de nuevo nodo
+  hosts: gateway
+  become: yes
+
+  vars:
+    nfs_base: /srv/nfs
+    tftp_base: /srv/tftp
+    gateway_ip: 10.0.0.1
+
+  tasks:
+    # ============================================================
+    # VALIDACIÓN DE VARIABLES
+    # ============================================================
+    - name: Verificar que node_name está definido
+      fail:
+        msg: "Variable 'node_name' es requerida. Usa: -e 'node_name=rp4'"
+      when: node_name is not defined
+
+    - name: Verificar que node_serial está definido
+      fail:
+        msg: "Variable 'node_serial' es requerida. Usa: -e 'node_serial=abcd1234'"
+      when: node_serial is not defined
+
+    - name: Verificar que node_mac está definido
+      fail:
+        msg: "Variable 'node_mac' es requerida. Usa: -e 'node_mac=aa:bb:cc:dd:ee:ff'"
+      when: node_mac is not defined
+
+    - name: Convertir MAC a formato con guiones
+      set_fact:
+        node_mac_dashes: "{{ node_mac | replace(':', '-') }}"
+
+    - name: Mostrar configuración
+      debug:
+        msg: |
+          Configurando netboot para:
+          - Nombre: {{ node_name }}
+          - Serial: {{ node_serial }}
+          - MAC: {{ node_mac }} ({{ node_mac_dashes }})
+
+    # ============================================================
+    # PASO 1: Crear estructura NFS
+    # ============================================================
+    - name: Crear directorio NFS para el nodo
+      file:
+        path: "{{ nfs_base }}/{{ node_name }}"
+        state: directory
+        mode: "0755"
+
+    - name: Crear directorios virtuales en NFS
+      file:
+        path: "{{ nfs_base }}/{{ node_name }}/{{ item }}"
+        state: directory
+        mode: "{{ '1777' if item == 'tmp' else '0755' }}"
+      loop:
+        - proc
+        - sys
+        - dev
+        - tmp
+        - run
+        - mnt
+
+    - name: Crear dispositivos esenciales en /dev
+      command: "mknod -m {{ item.mode }} {{ nfs_base }}/{{ node_name }}/dev/{{ item.name }} {{ item.type }} {{ item.major }} {{ item.minor }}"
+      args:
+        creates: "{{ nfs_base }}/{{ node_name }}/dev/{{ item.name }}"
+      loop:
+        - { name: "null", mode: "666", type: "c", major: 1, minor: 3 }
+        - { name: "zero", mode: "666", type: "c", major: 1, minor: 5 }
+        - { name: "random", mode: "666", type: "c", major: 1, minor: 8 }
+        - { name: "urandom", mode: "666", type: "c", major: 1, minor: 9 }
+        - { name: "console", mode: "600", type: "c", major: 5, minor: 1 }
+        - { name: "tty", mode: "666", type: "c", major: 5, minor: 0 }
+
+    # ============================================================
+    # PASO 2: Crear estructura TFTP
+    # ============================================================
+    - name: Crear directorio TFTP por serial
+      file:
+        path: "{{ tftp_base }}/{{ node_serial }}"
+        state: directory
+        mode: "0755"
+
+    - name: Crear subdirectorio current en TFTP
+      file:
+        path: "{{ tftp_base }}/{{ node_serial }}/current"
+        state: directory
+        mode: "0755"
+
+    - name: Crear symlink TFTP por MAC
+      file:
+        src: "{{ tftp_base }}/{{ node_serial }}"
+        dest: "{{ tftp_base }}/{{ node_mac_dashes }}"
+        state: link
+
+    # ============================================================
+    # PASO 3: Crear archivos de configuración
+    # ============================================================
+    - name: Crear cmdline.txt para NFS boot
+      copy:
+        content: "console=serial0,115200 console=tty1 root=/dev/nfs nfsroot={{ gateway_ip }}:{{ nfs_base }}/{{ node_name }},vers=3,tcp rw ip=dhcp rootwait"
+        dest: "{{ tftp_base }}/{{ node_serial }}/current/cmdline.txt"
+        mode: "0644"
+
+    - name: Crear config.txt básico
+      copy:
+        content: |
+          [all]
+          os_prefix=current/
+          arm_64bit=1
+          kernel=vmlinuz
+          cmdline=cmdline.txt
+          initramfs initrd.img followkernel
+          dtparam=audio=on
+          dtparam=i2c_arm=on
+          dtparam=spi=on
+        dest: "{{ tftp_base }}/{{ node_serial }}/config.txt"
+        mode: "0644"
+
+    # ============================================================
+    # PASO 4: Actualizar NFS exports
+    # ============================================================
+    - name: Verificar si export ya existe
+      shell: "grep -q '{{ nfs_base }}/{{ node_name }}' /etc/exports || echo 'not_found'"
+      register: export_check
+      changed_when: false
+
+    - name: Agregar export NFS para el nodo
+      lineinfile:
+        path: /etc/exports
+        line: "{{ nfs_base }}/{{ node_name }}  10.0.0.0/24(rw,sync,no_subtree_check,no_root_squash)"
+        state: present
+      when: "'not_found' in export_check.stdout"
+      notify: Reload NFS exports
+
+    # ============================================================
+    # PASO 5: Resumen y próximos pasos
+    # ============================================================
+    - name: Mostrar estructura creada
+      debug:
+        msg: |
+          ============================================
+          ESTRUCTURA CREADA EN SERVIDOR
+          ============================================
+          
+          NFS:
+          {{ nfs_base }}/{{ node_name }}/
+          ├── proc/
+          ├── sys/
+          ├── dev/ (con dispositivos básicos)
+          ├── tmp/
+          ├── run/
+          └── mnt/
+          
+          TFTP:
+          {{ tftp_base }}/{{ node_serial }}/
+          ├── config.txt
+          └── current/
+              └── cmdline.txt
+          
+          Symlink: {{ tftp_base }}/{{ node_mac_dashes }} -> {{ node_serial }}
+          
+          ============================================
+          PRÓXIMOS PASOS MANUALES
+          ============================================
+          
+          1. Copiar filesystem del nodo a NFS:
+             sudo rsync -axv --progress admin@NODO_IP:/ {{ nfs_base }}/{{ node_name }}/ \
+               --exclude=/proc/* --exclude=/sys/* --exclude=/dev/* \
+               --exclude=/tmp/* --exclude=/run/* --exclude=/mnt/* \
+               --exclude=/boot/firmware/*
+          
+          2. Copiar archivos de boot a TFTP:
+             sudo rsync -av admin@NODO_IP:/boot/firmware/ {{ tftp_base }}/{{ node_serial }}/
+          
+          3. Configurar fstab en NFS:
+             echo -e "proc /proc proc defaults 0 0\nsysfs /sys sysfs defaults 0 0\ntmpfs /tmp tmpfs defaults 0 0\ntmpfs /run tmpfs defaults 0 0" | sudo tee {{ nfs_base }}/{{ node_name }}/etc/fstab
+          
+          4. Copiar shadow (después de rsync, desde el nodo con microSD):
+             sudo scp admin@NODO_IP:/etc/shadow /tmp/shadow-{{ node_name }}
+             sudo mv /tmp/shadow-{{ node_name }} {{ nfs_base }}/{{ node_name }}/etc/shadow
+          
+          5. Crear sudoers para admin:
+             echo "admin ALL=(ALL) NOPASSWD: ALL" | sudo tee {{ nfs_base }}/{{ node_name }}/etc/sudoers.d/admin
+             sudo chmod 440 {{ nfs_base }}/{{ node_name }}/etc/sudoers.d/admin
+          
+          6. Configurar hostname:
+             echo "{{ node_name }}-node" | sudo tee {{ nfs_base }}/{{ node_name }}/etc/hostname
+          
+          7. En el nodo: apagar, quitar microSD, encender
+          ============================================
+
+  handlers:
+    - name: Reload NFS exports
+      command: exportfs -ra

@@ -1,0 +1,156 @@
+# Playbook: prepare-node.yml
+# Propósito: Preparar un nodo nuevo para netboot
+#
+# Requisitos previos:
+#   1. Ubuntu instalado en microSD
+#   2. ssh-copy-id ejecutado (acceso SSH sin contraseña)
+#   3. Nodo agregado al inventory
+#
+# Uso:
+#   ansible-playbook playbooks/prepare-node.yml --limit rp4-node
+#
+# Variables requeridas (definir en inventory o con -e):
+#   - node_serial: Últimos 8 caracteres del serial (ej: "02671e08")
+- name: Prepare node for netboot
+  hosts: nodes
+  become: yes
+
+  tasks:
+    # ============================================================
+    # STEP 1: Verify node information
+    # ============================================================
+    - name: Get processor serial number
+      command: grep Serial /proc/cpuinfo
+      register: cpu_serial
+      changed_when: false
+
+    - name: Show node serial number
+      debug:
+        msg: "Full serial: {{ cpu_serial.stdout }}. Use the last 8 characters for TFTP."
+
+    - name: Get MAC address of eth0
+      command: cat /sys/class/net/eth0/address
+      register: eth0_mac
+      changed_when: false
+
+    - name: Show node MAC address
+      debug:
+        msg: "MAC of eth0: {{ eth0_mac.stdout }}"
+
+    # ============================================================
+    # STEP 2: Create admin user with UID 1000
+    # ============================================================
+    - name: Check if admin user exists
+      getent:
+        database: passwd
+        key: admin
+      register: admin_exists
+      ignore_errors: yes
+
+    - name: Get current user's UID
+      command: id -u
+      register: current_uid
+      changed_when: false
+
+    - name: Show user information
+      debug:
+        msg: "Admin user exists: {{ admin_exists is succeeded }}. Current UID: {{ current_uid.stdout }}"
+
+    # ============================================================
+    # STEP 3: Configure passwordless sudo
+    # ============================================================
+    - name: Configure passwordless sudo for admin
+      copy:
+        content: "admin ALL=(ALL) NOPASSWD: ALL"
+        dest: /etc/sudoers.d/admin
+        mode: "0440"
+        validate: "visudo -cf %s"
+
+    - name: Configure passwordless sudo for current user
+      copy:
+        content: "{{ ansible_user }} ALL=(ALL) NOPASSWD: ALL"
+        dest: "/etc/sudoers.d/{{ ansible_user }}"
+        mode: "0440"
+        validate: "visudo -cf %s"
+      when: ansible_user != 'admin'
+
+    # ============================================================
+    # STEP 4: Configure eth0 network
+    # ============================================================
+    - name: Check if eth0 is configured in netplan
+      shell: grep -r "eth0" /etc/netplan/ || true
+      register: eth0_configured
+      changed_when: false
+
+    - name: Create netplan configuration for eth0
+      copy:
+        content: |
+          network:
+            version: 2
+            ethernets:
+              eth0:
+                dhcp4: true
+        dest: /etc/netplan/60-eth0.yaml
+        mode: "0600"
+      when: eth0_configured.stdout == ""
+      notify: Apply netplan
+
+    # ============================================================
+    # STEP 5: Configure EEPROM for netboot
+    # ============================================================
+    - name: Create EEPROM configuration file
+      copy:
+        content: |
+          BOOT_ORDER=0xf2461
+          TFTP_PREFIX=2
+          NET_INSTALL_AT_POWER_ON=0
+        dest: /tmp/boot.conf
+        mode: "0644"
+
+    - name: Apply EEPROM configuration
+      command: rpi-eeprom-config --apply /tmp/boot.conf
+      register: eeprom_result
+
+    - name: Show EEPROM result
+      debug:
+        msg: "{{ eeprom_result.stdout }}"
+
+    - name: Verify EEPROM configuration
+      command: rpi-eeprom-config
+      register: eeprom_verify
+      changed_when: false
+
+    - name: Show current EEPROM configuration
+      debug:
+        msg: "{{ eeprom_verify.stdout_lines }}"
+
+    # ============================================================
+    # STEP 6: Final summary
+    # ============================================================
+    - name: Show summary
+      debug:
+        msg: |
+          ============================================
+          NODE READY FOR NETBOOT
+          ============================================
+          Hostname: {{ inventory_hostname }}
+          IP: {{ ansible_host }}
+          MAC: {{ eth0_mac.stdout }}
+          Serial: {{ cpu_serial.stdout }}
+
+          NEXT MANUAL STEPS:
+          1. Copy filesystem to NFS (from rp1-master):
+            sudo rsync -axv admin@{{ ansible_host }}:/ /srv/nfs/NOMBRE_NODO/ --exclude=/proc/* --exclude=/sys/* --exclude=/dev/* --exclude=/tmp/* --exclude=/run/* --exclude=/mnt/* --exclude=/boot/firmware/*
+
+          2. Run server playbook to register node (from rp1-master):
+            ansible-playbook playbooks/setup-netboot-server.yml -e "node_name=NOMBRE_NODO node_serial=SERIAL node_mac={{ eth0_mac.stdout }}"
+
+          3. Copy boot files to TFTP (from rp1-master):
+            sudo rsync -av admin@{{ ansible_host }}:/boot/firmware/ /srv/tftp/SERIAL/
+
+          4. Power off, remove microSD, and test netboot
+          ============================================
+
+  handlers:
+    - name: Apply netplan
+      command: netplan apply
