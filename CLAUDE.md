@@ -148,8 +148,10 @@ sudo wg-quick down ~/homelab.conf
 
 ```
 docs/
-├── decisions/           # ADRs (WireGuard, segmentation, dnsmasq)
-├── concepts/            # DHCP, DNS, TFTP, PXE, NAT, VPN theory
+├── decisions/           # ADRs (WireGuard, segmentation, dnsmasq, IP forwarding)
+├── concepts/            # Theory: DHCP, DNS, TFTP, PXE, NAT, VPN, iptables, systemd, NFS, EEPROM
+├── guides/              # How-to: playbook-usage, firewall, service-management, network-troubleshooting
+├── runbooks/            # Procedures: disaster-recovery, maintenance
 ├── netboot-node-setup.md
 ├── netboot-concepts.md
 ├── ssh-authentication.md
