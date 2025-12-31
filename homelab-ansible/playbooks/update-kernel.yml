@@ -1,0 +1,134 @@
+---
+# Playbook: update-kernel.yml
+# Propósito: Copiar kernel actualizado de NFS a TFTP y reiniciar nodos
+#
+# Uso:
+#   ansible-playbook playbooks/update-kernel.yml
+#   ansible-playbook playbooks/update-kernel.yml --limit rp2-node
+
+- name: Actualizar kernel en TFTP para nodos NFS boot
+  hosts: gateway
+  become: yes
+
+  vars:
+    nodes:
+      rp2:
+        nfs_path: /srv/nfs/rp2
+        tftp_serial: "440dc91d"
+      rp3:
+        nfs_path: /srv/nfs/rp3
+        tftp_serial: "02671e08"
+
+  tasks:
+    - name: Obtener kernel más reciente de rp2
+      shell: ls -t {{ nodes.rp2.nfs_path }}/boot/vmlinuz-* | head -1
+      register: rp2_kernel
+      changed_when: false
+
+    - name: Obtener initrd más reciente de rp2
+      shell: ls -t {{ nodes.rp2.nfs_path }}/boot/initrd.img-* | head -1
+      register: rp2_initrd
+      changed_when: false
+
+    - name: Obtener kernel más reciente de rp3
+      shell: ls -t {{ nodes.rp3.nfs_path }}/boot/vmlinuz-* | head -1
+      register: rp3_kernel
+      changed_when: false
+
+    - name: Obtener initrd más reciente de rp3
+      shell: ls -t {{ nodes.rp3.nfs_path }}/boot/initrd.img-* | head -1
+      register: rp3_initrd
+      changed_when: false
+
+    - name: Mostrar archivos a copiar
+      debug:
+        msg: |
+          rp2: {{ rp2_kernel.stdout }} → /srv/tftp/{{ nodes.rp2.tftp_serial }}/current/vmlinuz
+          rp2: {{ rp2_initrd.stdout }} → /srv/tftp/{{ nodes.rp2.tftp_serial }}/current/initrd.img
+          rp3: {{ rp3_kernel.stdout }} → /srv/tftp/{{ nodes.rp3.tftp_serial }}/current/vmlinuz
+          rp3: {{ rp3_initrd.stdout }} → /srv/tftp/{{ nodes.rp3.tftp_serial }}/current/initrd.img
+
+    # Copiar kernel e initrd para rp2
+    - name: Copiar kernel de rp2 a TFTP
+      copy:
+        src: "{{ rp2_kernel.stdout }}"
+        dest: "/srv/tftp/{{ nodes.rp2.tftp_serial }}/current/vmlinuz"
+        remote_src: yes
+        mode: "0755"
+
+    - name: Copiar initrd de rp2 a TFTP
+      copy:
+        src: "{{ rp2_initrd.stdout }}"
+        dest: "/srv/tftp/{{ nodes.rp2.tftp_serial }}/current/initrd.img"
+        remote_src: yes
+        mode: "0755"
+
+    # Copiar kernel e initrd para rp3
+    - name: Copiar kernel de rp3 a TFTP
+      copy:
+        src: "{{ rp3_kernel.stdout }}"
+        dest: "/srv/tftp/{{ nodes.rp3.tftp_serial }}/current/vmlinuz"
+        remote_src: yes
+        mode: "0755"
+
+    - name: Copiar initrd de rp3 a TFTP
+      copy:
+        src: "{{ rp3_initrd.stdout }}"
+        dest: "/srv/tftp/{{ nodes.rp3.tftp_serial }}/current/initrd.img"
+        remote_src: yes
+        mode: "0755"
+
+    - name: Verificar archivos copiados
+      shell: |
+        echo "=== rp2 ===" && ls -la /srv/tftp/{{ nodes.rp2.tftp_serial }}/current/vmlinuz /srv/tftp/{{ nodes.rp2.tftp_serial }}/current/initrd.img
+        echo "=== rp3 ===" && ls -la /srv/tftp/{{ nodes.rp3.tftp_serial }}/current/vmlinuz /srv/tftp/{{ nodes.rp3.tftp_serial }}/current/initrd.img
+      register: verify_output
+      changed_when: false
+
+    - name: Mostrar verificación
+      debug:
+        msg: "{{ verify_output.stdout_lines }}"
+
+- name: Reiniciar nodos para usar nuevo kernel
+  hosts: nodes
+  become: yes
+  serial: 1
+
+  tasks:
+    - name: Obtener kernel en ejecución
+      command: uname -r
+      register: running_kernel
+      changed_when: false
+
+    - name: Obtener kernel más reciente instalado
+      shell: ls -t /boot/vmlinuz-* 2>/dev/null | head -1 | sed 's/.*vmlinuz-//'
+      register: latest_kernel
+      changed_when: false
+
+    - name: Mostrar información de kernel
+      debug:
+        msg: |
+          Kernel en ejecución: {{ running_kernel.stdout }}
+          Kernel disponible: {{ latest_kernel.stdout }}
+          ¿Necesita reinicio?: {{ 'Sí' if running_kernel.stdout != latest_kernel.stdout else 'No' }}
+
+    - name: Reiniciar nodo si hay nuevo kernel
+      reboot:
+        msg: "Reiniciando para aplicar kernel {{ latest_kernel.stdout }}"
+        reboot_timeout: 300
+      when: running_kernel.stdout != latest_kernel.stdout
+
+    - name: Esperar a que el nodo esté disponible
+      wait_for_connection:
+        delay: 15
+        timeout: 300
+      when: running_kernel.stdout != latest_kernel.stdout
+
+    - name: Verificar kernel después de reinicio
+      command: uname -r
+      register: kernel_after
+      changed_when: false
+
+    - name: Confirmar actualización
+      debug:
+        msg: "✅ Kernel actual: {{ kernel_after.stdout }}"

@@ -1,30 +1,52 @@
 ---
 # Playbook: update-nodes.yml
-# Propósito: Actualizar paquetes en los nodos
+# Propósito: Actualizar paquetes en los nodos (seguro para NFS boot)
 #
 # Uso:
 #   ansible-playbook playbooks/update-nodes.yml                    # Todos los nodos
-#   ansible-playbook playbooks/update-nodes.yml --limit rp2        # Solo rp2
+#   ansible-playbook playbooks/update-nodes.yml --limit rp2-node   # Solo rp2
 #   ansible-playbook playbooks/update-nodes.yml -e "reboot=true"   # Con reinicio
-#
-# Variables opcionales:
-#   - reboot: true/false - Reiniciar después de actualizar (default: false)
-#   - update_kernel: true/false - Actualizar kernel y TFTP (default: false)
 
 - name: Actualizar nodos
   hosts: nodes
   become: yes
-  serial: 1  # Actualiza un nodo a la vez para evitar problemas
+  serial: 1  # Un nodo a la vez
 
   vars:
     reboot: false
-    update_kernel: false
 
   tasks:
     # ============================================================
-    # PASO 1: Información previa
+    # PASO 1: Pre-requisitos para NFS boot
     # ============================================================
-    - name: Obtener información del sistema
+    - name: Sincronizar tiempo (NFS boot pierde hora al reiniciar)
+      command: chronyc makestep
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Verificar que flash-kernel está en hold
+      command: apt-mark showhold
+      register: hold_list
+      changed_when: false
+
+    - name: Marcar flash-kernel como hold si no lo está
+      command: apt-mark hold flash-kernel flash-kernel-piboot
+      when: "'flash-kernel' not in hold_list.stdout"
+
+    - name: Deshabilitar hooks de flash-kernel
+      file:
+        path: "{{ item }}"
+        mode: "0644"
+      loop:
+        - /etc/initramfs/post-update.d/flash-kernel
+        - /etc/kernel/postinst.d/zz-flash-kernel
+        - /etc/kernel/postrm.d/zz-flash-kernel
+      ignore_errors: yes
+
+    # ============================================================
+    # PASO 2: Información previa
+    # ============================================================
+    - name: Obtener kernel actual
       command: uname -r
       register: kernel_before
       changed_when: false
@@ -34,13 +56,26 @@
         msg: "Kernel actual: {{ kernel_before.stdout }}"
 
     # ============================================================
-    # PASO 2: Actualizar paquetes
+    # PASO 3: Limpiar y actualizar cache de apt
     # ============================================================
+    - name: Limpiar cache de apt (evita errores 404)
+      file:
+        path: /var/lib/apt/lists
+        state: absent
+      
+    - name: Recrear directorio de listas
+      file:
+        path: /var/lib/apt/lists/partial
+        state: directory
+        mode: "0755"
+
     - name: Actualizar cache de apt
       apt:
         update_cache: yes
-        cache_valid_time: 3600
 
+    # ============================================================
+    # PASO 4: Actualizar paquetes
+    # ============================================================
     - name: Listar paquetes actualizables
       command: apt list --upgradable
       register: upgradable
@@ -57,24 +92,26 @@
         autoclean: yes
       register: apt_result
 
-    - name: Mostrar resultado de actualización
-      debug:
-        msg: "Paquetes actualizados: {{ apt_result.changed }}"
-
     # ============================================================
-    # PASO 3: Verificar si requiere reinicio
+    # PASO 5: Verificar si requiere reinicio
     # ============================================================
     - name: Verificar si se requiere reinicio
       stat:
         path: /var/run/reboot-required
       register: reboot_required
 
-    - name: Mostrar si requiere reinicio
-      debug:
-        msg: "{{ 'REQUIERE REINICIO' if reboot_required.stat.exists else 'No requiere reinicio' }}"
+    - name: Obtener kernel después de actualización
+      command: uname -r
+      register: kernel_after
+      changed_when: false
+
+    - name: Verificar si hay nuevo kernel instalado
+      shell: ls -t /boot/vmlinuz-* 2>/dev/null | head -1 | sed 's/.*vmlinuz-//' || echo "none"
+      register: latest_kernel
+      changed_when: false
 
     # ============================================================
-    # PASO 4: Reiniciar si se solicita
+    # PASO 6: Reiniciar si se solicita
     # ============================================================
     - name: Reiniciar nodo
       reboot:
@@ -89,48 +126,21 @@
       when: reboot | bool and reboot_required.stat.exists
 
     # ============================================================
-    # PASO 5: Información posterior
+    # PASO 7: Resumen
     # ============================================================
-    - name: Obtener kernel después de actualización
-      command: uname -r
-      register: kernel_after
-      changed_when: false
-
     - name: Resumen final
       debug:
         msg: |
           ============================================
           NODO: {{ inventory_hostname }}
           ============================================
-          Kernel antes: {{ kernel_before.stdout }}
-          Kernel ahora: {{ kernel_after.stdout }}
+          Kernel en ejecución: {{ kernel_after.stdout }}
+          Kernel más reciente instalado: {{ latest_kernel.stdout }}
           Requiere reinicio: {{ 'Sí' if reboot_required.stat.exists else 'No' }}
-          ============================================
-
-# ============================================================
-# ACTUALIZAR TFTP (solo si se actualizó kernel)
-# ============================================================
-- name: Actualizar archivos de boot en TFTP
-  hosts: gateway
-  become: yes
-  
-  vars:
-    update_kernel: false
-
-  tasks:
-    - name: Aviso sobre actualización de kernel
-      debug:
-        msg: |
-          ============================================
-          IMPORTANTE: Si actualizaste el kernel en los nodos,
-          debes actualizar los archivos de boot en TFTP:
           
-          Para rp2:
-            sudo rsync -av admin@10.0.0.2:/boot/firmware/ /srv/tftp/440dc91d/
-          
-          Para rp3:
-            sudo rsync -av admin@10.0.0.3:/boot/firmware/ /srv/tftp/02671e08/
-          
-          Luego reinicia los nodos para usar el nuevo kernel.
+          {% if latest_kernel.stdout != kernel_after.stdout %}
+          ⚠️  HAY NUEVO KERNEL DISPONIBLE
+          Para aplicarlo, ejecuta:
+            ansible-playbook playbooks/update-kernel.yml --limit {{ inventory_hostname }}
+          {% endif %}
           ============================================
-      when: update_kernel | bool
