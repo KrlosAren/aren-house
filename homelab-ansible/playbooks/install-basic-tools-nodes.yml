@@ -46,3 +46,15 @@
         name: speedtest-cli
         state: present
       register: speedtest_result
+    
+    - name: Instalar htop
+      apt:
+        name: htop
+        state: present
+      register: htop_result
+    
+    - name: Instalar git
+      apt:
+        name: git
+        state: present
+      register: git_result

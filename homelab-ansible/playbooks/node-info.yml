@@ -1,0 +1,128 @@
+---
+# Playbook: node-info.yml
+# Propósito: Obtener información de todos los nodos del homelab
+#
+# Uso:
+#   ansible-playbook playbooks/node-info.yml
+#   ansible-playbook playbooks/node-info.yml --limit rp2-node
+
+- name: Información de nodos
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    # ============================================================
+    # RECOPILAR INFORMACIÓN
+    # ============================================================
+    - name: Obtener uptime
+      command: uptime -p
+      register: uptime_result
+      changed_when: false
+
+    - name: Obtener kernel
+      command: uname -r
+      register: kernel_result
+      changed_when: false
+
+    - name: Obtener temperatura
+      shell: vcgencmd measure_temp 2>/dev/null | sed 's/temp=//' || echo "N/A"
+      register: temp_result
+      changed_when: false
+
+    - name: Obtener uso de memoria
+      shell: free -h | grep Mem | awk '{print $3 "/" $2}'
+      register: memory_result
+      changed_when: false
+
+    - name: Obtener porcentaje de memoria
+      shell: free | grep Mem | awk '{printf "%.0f", $3/$2*100}'
+      register: memory_pct
+      changed_when: false
+
+    - name: Obtener uso de disco
+      shell: df -h / | tail -1 | awk '{print $3 "/" $2 " (" $5 ")"}'
+      register: disk_result
+      changed_when: false
+
+    - name: Obtener IP eth0
+      shell: ip -4 addr show eth0 2>/dev/null | grep inet | awk '{print $2}' | head -1 || echo "N/A"
+      register: eth0_ip
+      changed_when: false
+
+    - name: Obtener MAC eth0
+      shell: cat /sys/class/net/eth0/address 2>/dev/null || echo "N/A"
+      register: eth0_mac
+      changed_when: false
+
+    - name: Verificar internet
+      shell: ping -c 1 -W 2 8.8.8.8 > /dev/null 2>&1 && echo "OK" || echo "FAIL"
+      register: internet_result
+      changed_when: false
+
+    - name: Estado dnsmasq (gateway)
+      shell: systemctl is-active dnsmasq 2>/dev/null || echo "N/A"
+      register: dnsmasq_status
+      changed_when: false
+      when: "'gateway' in group_names"
+
+    - name: Estado NFS (gateway)
+      shell: systemctl is-active nfs-kernel-server 2>/dev/null || echo "N/A"
+      register: nfs_status
+      changed_when: false
+      when: "'gateway' in group_names"
+
+    - name: Estado WireGuard (gateway)
+      shell: systemctl is-active wg-quick@wg0 2>/dev/null || echo "N/A"
+      register: wireguard_status
+      changed_when: false
+      when: "'gateway' in group_names"
+
+    - name: DHCP leases (gateway)
+      shell: cat /var/lib/misc/dnsmasq.leases 2>/dev/null | wc -l || echo "0"
+      register: dhcp_leases
+      changed_when: false
+      when: "'gateway' in group_names"
+
+    # ============================================================
+    # MOSTRAR INFORMACIÓN FORMATEADA
+    # ============================================================
+    - name: Mostrar información
+      vars:
+        info_lines:
+          - ""
+          - "═══════════════════════════════════════════════════════"
+          - "  {{ inventory_hostname | upper }}"
+          - "═══════════════════════════════════════════════════════"
+          - "  Sistema"
+          - "    Hostname:     {{ ansible_hostname }}"
+          - "    OS:           {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "    Kernel:       {{ kernel_result.stdout }}"
+          - "    Uptime:       {{ uptime_result.stdout }}"
+          - "    Temperatura:  {{ temp_result.stdout }}"
+          - ""
+          - "  Recursos"
+          - "    Memoria:      {{ memory_result.stdout }} ({{ memory_pct.stdout }}%)"
+          - "    Disco (/):    {{ disk_result.stdout }}"
+          - "    CPUs:         {{ ansible_processor_vcpus }}"
+          - ""
+          - "  Red"
+          - "    IP eth0:      {{ eth0_ip.stdout }}"
+          - "    MAC eth0:     {{ eth0_mac.stdout }}"
+          - "    Internet:     {{ internet_result.stdout }}"
+      debug:
+        msg: "{{ info_lines }}"
+
+    - name: Mostrar servicios (gateway)
+      vars:
+        service_lines:
+          - ""
+          - "  Servicios Gateway"
+          - "    dnsmasq:      {{ dnsmasq_status.stdout }}"
+          - "    NFS:          {{ nfs_status.stdout }}"
+          - "    WireGuard:    {{ wireguard_status.stdout }}"
+          - "    DHCP leases:  {{ dhcp_leases.stdout }}"
+          - "═══════════════════════════════════════════════════════"
+      debug:
+        msg: "{{ service_lines }}"
+      when: "'gateway' in group_names"
