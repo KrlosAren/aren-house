@@ -1,0 +1,165 @@
+
+---
+# Playbook: reboot-nodes.yml
+# Propósito: Reiniciar nodos de forma controlada (uno a uno)
+#
+# Uso:
+#   ansible-playbook playbooks/reboot-nodes.yml                    # Todos los nodos
+#   ansible-playbook playbooks/reboot-nodes.yml --limit rp2-node   # Solo rp2
+#   ansible-playbook playbooks/reboot-nodes.yml --limit nodes      # Solo workers
+
+- name: Reiniciar nodos de forma controlada
+  hosts: all
+  become: yes
+  serial: 1  # Un nodo a la vez para no perder conectividad
+
+  tasks:
+    # ============================================================
+    # CONFIRMACIÓN PARA GATEWAY
+    # ============================================================
+    - name: Advertencia - Este es el GATEWAY
+      pause:
+        prompt: |
+          
+          ⚠️  ADVERTENCIA: Estás por reiniciar {{ inventory_hostname }} (GATEWAY)
+          
+          Esto desconectará temporalmente TODOS los nodos de la red.
+          
+          ¿Continuar? (yes/no)
+      register: gateway_confirm
+      when: "'gateway' in group_names"
+
+    - name: Saltar reinicio de gateway si no se confirma
+      meta: end_host
+      when: 
+        - "'gateway' in group_names"
+        - gateway_confirm.user_input | default('yes') != 'yes'
+
+    # ============================================================
+    # INFORMACIÓN PRE-REINICIO
+    # ============================================================
+    - name: Obtener uptime actual
+      command: uptime -p
+      register: uptime_before
+      changed_when: false
+
+    - name: Obtener kernel actual
+      command: uname -r
+      register: kernel_before
+      changed_when: false
+
+    - name: Verificar si hay reinicio pendiente
+      stat:
+        path: /var/run/reboot-required
+      register: reboot_pending
+
+    - name: Obtener carga del sistema
+      shell: cat /proc/loadavg | awk '{print $1, $2, $3}'
+      register: load_avg
+      changed_when: false
+
+    - name: Mostrar estado actual
+      vars:
+        status_lines:
+          - ""
+          - "═══════════════════════════════════════════════════════"
+          - "  REINICIANDO: {{ inventory_hostname }}"
+          - "═══════════════════════════════════════════════════════"
+          - "  Uptime:           {{ uptime_before.stdout }}"
+          - "  Kernel:           {{ kernel_before.stdout }}"
+          - "  Carga (1/5/15m):  {{ load_avg.stdout }}"
+          - "  Reinicio pendiente: {{ 'Sí' if reboot_pending.stat.exists else 'No' }}"
+          - "═══════════════════════════════════════════════════════"
+      debug:
+        msg: "{{ status_lines }}"
+
+    # ============================================================
+    # CONFIRMACIÓN PARA NODOS
+    # ============================================================
+    - name: Confirmar reinicio del nodo
+      pause:
+        prompt: |
+          
+          ¿Reiniciar {{ inventory_hostname }}? (yes/no)
+      register: node_confirm
+      when: "'gateway' not in group_names"
+
+    - name: Saltar nodo si no se confirma
+      meta: end_host
+      when:
+        - "'gateway' not in group_names"
+        - node_confirm.user_input | default('yes') != 'yes'
+
+    # ============================================================
+    # REINICIO
+    # ============================================================
+    - name: Reiniciar nodo
+      reboot:
+        msg: "Reinicio iniciado por Ansible"
+        reboot_timeout: 300
+        pre_reboot_delay: 5
+        post_reboot_delay: 30
+
+    - name: Esperar reconexión SSH
+      wait_for_connection:
+        delay: 10
+        timeout: 120
+
+    # ============================================================
+    # VERIFICACIÓN POST-REINICIO
+    # ============================================================
+    - name: Obtener nuevo uptime
+      command: uptime -p
+      register: uptime_after
+      changed_when: false
+
+    - name: Obtener kernel después de reinicio
+      command: uname -r
+      register: kernel_after
+      changed_when: false
+
+    - name: Verificar conectividad a internet
+      shell: ping -c 1 -W 2 8.8.8.8 > /dev/null 2>&1 && echo "OK" || echo "FAIL"
+      register: internet_check
+      changed_when: false
+
+    - name: Verificar servicios gateway
+      shell: |
+        echo "dnsmasq: $(systemctl is-active dnsmasq)"
+        echo "nfs: $(systemctl is-active nfs-kernel-server)"
+        echo "wireguard: $(systemctl is-active wg-quick@wg0)"
+      register: gateway_services
+      changed_when: false
+      when: "'gateway' in group_names"
+
+    - name: Mostrar estado post-reinicio
+      vars:
+        post_lines:
+          - ""
+          - "═══════════════════════════════════════════════════════"
+          - "  ✅ {{ inventory_hostname }} REINICIADO"
+          - "═══════════════════════════════════════════════════════"
+          - "  Uptime:     {{ uptime_after.stdout }}"
+          - "  Kernel:     {{ kernel_after.stdout }}"
+          - "  Internet:   {{ internet_check.stdout }}"
+          - "═══════════════════════════════════════════════════════"
+      debug:
+        msg: "{{ post_lines }}"
+      when: "'gateway' not in group_names"
+
+    - name: Mostrar estado post-reinicio (gateway)
+      vars:
+        post_lines:
+          - ""
+          - "═══════════════════════════════════════════════════════"
+          - "  ✅ {{ inventory_hostname }} REINICIADO (GATEWAY)"
+          - "═══════════════════════════════════════════════════════"
+          - "  Uptime:     {{ uptime_after.stdout }}"
+          - "  Kernel:     {{ kernel_after.stdout }}"
+          - "  Internet:   {{ internet_check.stdout }}"
+          - "  Servicios:"
+          - "{{ gateway_services.stdout | indent(4) }}"
+          - "═══════════════════════════════════════════════════════"
+      debug:
+        msg: "{{ post_lines }}"
+      when: "'gateway' in group_names"
