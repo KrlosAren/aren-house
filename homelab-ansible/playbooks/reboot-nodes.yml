@@ -1,4 +1,3 @@
-
 ---
 # Playbook: reboot-nodes.yml
 # Propósito: Reiniciar nodos de forma controlada (uno a uno)
@@ -29,7 +28,7 @@
       register: gateway_confirm
       when: "'gateway' in group_names"
 
-    - name: Saltar reinicio de gateway si no se confirma
+    - name: Saltar gateway si no se confirma
       meta: end_host
       when: 
         - "'gateway' in group_names"
