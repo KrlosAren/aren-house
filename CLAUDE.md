@@ -69,6 +69,16 @@ WireGuard VPN: 10.0.1.0/24
 
 All commands run from `homelab-ansible/` directory.
 
+### Inventory Hosts
+
+| Ansible Host | IP | Group |
+|--------------|-----|-------|
+| rp1-master | 10.0.0.1 | gateway |
+| rp2-node | 10.0.0.2 | nodes |
+| rp3-node | 10.0.0.3 | nodes |
+
+Connection requires VPN (WireGuard) active to reach 10.0.0.x network.
+
 ### Structure
 
 ```
@@ -77,11 +87,15 @@ homelab-ansible/
 ├── inventory/inventory.yml  # Host definitions (gateway, nodes groups)
 ├── playbooks/
 │   ├── gateway.yml          # Configure complete rp1-master
+│   ├── wireguard.yml        # Configure WireGuard VPN
+│   ├── setup-netboot-server.yml  # Configure netboot server (TFTP/NFS)
 │   ├── setup-ssh.yml        # Distribute SSH keys to nodes
 │   ├── prepare-node.yml     # Prepare new node for netboot
 │   ├── common.yml           # Base config: timezone, NTP, locales, packages
 │   ├── node-info.yml        # Get system info from all nodes
-│   └── reboot-nodes.yml     # Controlled reboot (one at a time)
+│   ├── reboot-nodes.yml     # Controlled reboot (one at a time)
+│   ├── update-nodes.yml     # Update packages on nodes
+│   └── update-kernel.yml    # Update kernel on nodes
 └── roles/
     ├── wireguard/           # VPN with IP forwarding
     ├── dnsmasq/             # DHCP, DNS, TFTP (with host-record for rp1)
@@ -93,7 +107,9 @@ homelab-ansible/
 Variables in `defaults/main.yml`, overridden in playbooks:
 
 - **wireguard**: `wireguard_peers` (VPN clients list)
-- **dnsmasq**: `dnsmasq_hosts` (MAC→IP mappings)
+- **dnsmasq**:
+  - `dnsmasq_hosts` (MAC→IP mappings for DHCP)
+  - `dnsmasq_network.dns` (hostname for host-record, e.g., "rp1")
 - **nfs**: `nfs_nodes` (netboot nodes)
 
 ### Common Commands
@@ -163,10 +179,16 @@ sudo wg-quick down ~/homelab.conf
 
 ```
 docs/
-├── decisions/           # ADRs (WireGuard, segmentation, dnsmasq, IP forwarding)
+├── decisions/           # ADRs (architectural decisions)
+│   ├── 001-wireguard-over-openvpn.md
+│   ├── 002-network-segmentation.md
+│   ├── 003-dnsmasq-dhcp-dns-tftp.md
+│   └── 004-ip-forwarding-nat.md
 ├── concepts/            # Theory: DHCP, DNS, TFTP, PXE, NAT, VPN, iptables, systemd, NFS, EEPROM
 ├── guides/              # How-to: playbook-usage, firewall, service-management, network-troubleshooting
 ├── runbooks/            # Procedures: disaster-recovery, maintenance
+├── ansible-guide.md     # Complete Ansible guide
+├── dns-setup.md         # DNS configuration guide
 ├── netboot-node-setup.md
 ├── netboot-concepts.md
 ├── ssh-authentication.md

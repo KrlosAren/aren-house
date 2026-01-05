@@ -1,3 +1,14 @@
+# Playbook: wireguard.yml
+# Propósito: Instalar y configurar WireGuard VPN en el gateway
+#
+# Configura WireGuard como servidor VPN (sin peers).
+# Para configuración completa con peers, usar gateway.yml que incluye el role wireguard.
+#
+# Uso:
+#   ansible-playbook playbooks/wireguard.yml
+#
+# Nota: Este playbook es standalone. El role wireguard en gateway.yml
+#       incluye configuración de peers via la variable wireguard_peers.
 ---
 - name: Configure WireGuard VPN
   hosts: gateway

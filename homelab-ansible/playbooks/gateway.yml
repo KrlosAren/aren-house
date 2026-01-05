@@ -1,3 +1,15 @@
+# Playbook: gateway.yml
+# Propósito: Configurar el gateway completo (rp1-master) con todos los servicios
+#
+# Servicios configurados:
+#   - WireGuard VPN (acceso remoto)
+#   - dnsmasq (DHCP, DNS, TFTP)
+#   - NFS (sistemas de archivos para netboot)
+#
+# Uso:
+#   ansible-playbook playbooks/gateway.yml
+#   ansible-playbook playbooks/gateway.yml --check    # Dry-run
+#   ansible-playbook playbooks/gateway.yml --tags wireguard  # Solo WireGuard
 ---
 - name: Configure Gateway
   hosts: gateway
