@@ -1,0 +1,165 @@
+# Playbook:  common.yml
+# Proposito: configuracion base para todos los nodos
+#
+# Uso:
+#   ansible-playbook playbooks/common.yml                     # todos los nodos
+#   ansible-playbook playbooks/common.yml --limit nodes       # Solo workers
+#   ansible-playbook playbooks/common.yml --tags packages     # solo packages
+---
+- name: Configuracion base de nodos
+  hosts: all 
+  become: yes 
+
+  vars:
+    timezone: "America/Santiago"
+    common_packages:
+      - htop
+      - vim
+      - curl
+      - wget
+      - git
+      - tree
+      - net-tools
+      - dnsutils
+      - jq
+  
+  tasks:
+    # =============================================
+    # Timezone 
+    # =============================================
+    - name: configuracion de timezone
+      timezone:
+        name: "{{ timezone }}"
+      tags: timezone
+
+    - name: verificar timezone configurada
+      command: timedatectl show -P Timezone
+      register: current_tz
+      changed_when: false
+      tags: 
+        - timezone
+        - always
+
+    - name: Mostrar timezone actual
+      debug:
+        msg: "Timezone: {{ current_tz.stdout }}"
+      tags: timezone
+    
+    # =================================================
+    # ntp / chrony
+    # =================================================
+    - name: Instalar chrony
+      apt:
+        name: chrony
+        state: present
+      tags: ntp
+
+    - name: Habilitar y arrancar chrony
+      service:
+        name: chrony
+        state: started
+        enabled: yes
+      tags: ntp
+
+    - name: forzar sincronizacion de tiempo
+      command: chronyc makestep
+      changed_when: false
+      tags: ntp
+
+    - name: verificar sincronizacion
+      command: chronyc tracking
+      register: chrony_status
+      changed_when: false
+      tags: ntp
+    
+    # ===============================================
+    # Locales
+    # ==============================================
+    - name: Instalar paquetes Locales
+      apt:
+        name: locales 
+        state: present
+      tags: locales
+
+    - name: generar locale en_US.UTF-8
+      locale_gen:
+        name: en_US.UTF-8
+        state: present
+      tags: locales 
+    
+    - name: generar locale es_CL.UTF-8
+      locale_gen:
+        name: es_CL.UTF-8
+        state: present
+      tags: locales
+
+    - name: configurar locale por defecto
+      copy:
+        content: |
+          LANG=en_US.UTF-8
+          LC_ALL=en_US.UTF-8
+        dest: /etc/default/locale
+        mode: "0644"
+      tags: locales
+
+    # =============================================
+    # paquetes basicos
+    # =============================================
+    - name: actualizar cache de apt
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      tags: packages
+
+    - name: instalar paquetes basicos
+      apt: 
+        name: "{{ common_packages }}"
+        state: present
+      tags: packages
+
+    - name: mostrar paquetes instalados
+      debug:
+        msg: "Paquetes instalados: {{ common_packages | join(', ')}}"
+      tags: packages
+    
+    # ============================================
+    # Hostname
+    # ============================================
+    - name: verificar hostname actual
+      command: hostname
+      register: current_hostname
+      changed_when: false
+      tags: 
+        - hostname
+        - always
+
+    - name: mostrar hostname
+      debug:
+        msg: "Hostname actual: {{ current_hostname.stdout }}"
+      tags: hostname
+
+    # =================================================
+    # resumen
+    # ================================================
+    - name: obtener informacion del sistema
+      command: uname -r
+      register: kernel_info
+      changed_when: false
+      tags: always
+
+    - name: mostrar resumen de configuracion
+      vars:
+        summary_lines:
+          - ""
+          - "================================================================="
+          - "✅ {{ inventory_hostname }} CONFIGURADO"
+          - "================================================================="
+          - " Hostname: {{ current_hostname.stdout }}"
+          - " Timezone: {{ current_tz.stdout }}"
+          - " Kernel:   {{ kernel_info.stdout }}"
+          - " Paquetes: {{ common_packages | length }} instalados"
+          - "================================================================="
+      debug:
+        msg: "{{ summary_lines }}"
+      tags: always
+

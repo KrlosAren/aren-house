@@ -78,10 +78,13 @@ homelab-ansible/
 ├── playbooks/
 │   ├── gateway.yml          # Configure complete rp1-master
 │   ├── setup-ssh.yml        # Distribute SSH keys to nodes
-│   └── prepare-node.yml     # Prepare new node for netboot
+│   ├── prepare-node.yml     # Prepare new node for netboot
+│   ├── common.yml           # Base config: timezone, NTP, locales, packages
+│   ├── node-info.yml        # Get system info from all nodes
+│   └── reboot-nodes.yml     # Controlled reboot (one at a time)
 └── roles/
     ├── wireguard/           # VPN with IP forwarding
-    ├── dnsmasq/             # DHCP, DNS, TFTP
+    ├── dnsmasq/             # DHCP, DNS, TFTP (with host-record for rp1)
     └── nfs/                 # NFS server and exports
 ```
 
@@ -107,6 +110,18 @@ ansible-playbook playbooks/gateway.yml --check
 
 # Verbose output
 ansible-playbook playbooks/gateway.yml -v
+
+# Base configuration (timezone, NTP, locales, packages)
+ansible-playbook playbooks/common.yml
+ansible-playbook playbooks/common.yml --limit nodes    # Solo workers
+ansible-playbook playbooks/common.yml --tags packages  # Solo paquetes
+
+# Get node information (uptime, temp, memory, disk, services)
+ansible-playbook playbooks/node-info.yml
+
+# Controlled reboot (one at a time, with confirmation)
+ansible-playbook playbooks/reboot-nodes.yml
+ansible-playbook playbooks/reboot-nodes.yml --limit rp2-node
 ```
 
 ## Gateway Commands
@@ -173,3 +188,28 @@ docs/
 - [ ] Docker on nodes
 - [ ] k3s cluster
 - [ ] Monitoring with Prometheus/Grafana
+
+## DNS
+
+El gateway (rp1-master) actúa como servidor DNS local via dnsmasq.
+
+### Resolución de nombres
+
+| Hostname | IP |
+|----------|-----|
+| rp1.homelab.local | 10.0.0.1 |
+| rp2.homelab.local | 10.0.0.2 |
+| rp3.homelab.local | 10.0.0.3 |
+
+### Configuración en macOS (cliente VPN)
+
+Para resolver nombres `.homelab.local` desde tu Mac:
+```bash
+sudo mkdir -p /etc/resolver
+sudo bash -c 'echo "nameserver 10.0.0.1" > /etc/resolver/homelab.local'
+```
+
+### Tipos de registros en dnsmasq
+
+- `dhcp-host=MAC,nombre,IP` - Para clientes DHCP (rp2, rp3)
+- `host-record=nombre,nombre.dominio,IP` - Para hosts estáticos (rp1)

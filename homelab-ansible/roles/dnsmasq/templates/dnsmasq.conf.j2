@@ -24,10 +24,16 @@ dhcp-range={{ dnsmasq_network.range_start }},{{ dnsmasq_network.range_end }},{{ 
 dhcp-option=option:router,{{ dnsmasq_network.gateway }}
 dhcp-option=option:dns-server,{{ dnsmasq_network.gateway }}
 
+# ----- host record -----
+host-record={{ dnsmasq_network.dns }},{{ dnsmasq_network.dns }}.{{ dnsmasq_domain }},{{ dnsmasq_network.gateway }}
+
+
 # IPs fijas por MAC
 {% for host in dnsmasq_hosts %}
 dhcp-host={{ host.mac }},{{ host.name }},{{ host.ip }},infinite
 {% endfor %}
+
+
 
 # ----- TFTP + PXE Boot -----
 enable-tftp
