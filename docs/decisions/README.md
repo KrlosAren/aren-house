@@ -32,3 +32,5 @@ Cada ADR sigue esta estructura:
 |---|----------|--------|-------|
 | 001 | [WireGuard sobre OpenVPN](001-wireguard-over-openvpn.md) | Aceptado | 2025-12-06 |
 | 002 | [Segmentación de red con Raspberry Pi](002-network-segmentation.md) | Aceptado | 2025-12-06 |
+| 003 | [dnsmasq como DHCP, DNS y TFTP](003-dnsmasq-dhcp-dns-tftp.md) | Aceptado | 2025-12-06 |
+| 004 | [IP Forwarding y NAT](004-ip-forwarding-nat.md) | Aceptado | 2025-12-06 |

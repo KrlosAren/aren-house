@@ -26,7 +26,7 @@ Uso Ansible para automatizar toda la configuración porque:
 
 WireGuard crea un túnel encriptado que me permite acceder a la red interna del homelab desde mi Mac. En lugar de:
 
-1. Conectar SSH al gateway (192.168.1.84)
+1. Conectar SSH al gateway (IP WAN dinámica)
 2. Desde ahí, conectar SSH a la máquina interna (10.0.0.x)
 
 Con WireGuard:
@@ -51,13 +51,13 @@ Esto permite gestionar los nodos de forma centralizada y facilita la recuperaci�
 Internet
     │
     ▼
-  Modem (192.168.1.x)
+  Modem (192.168.100.x)
     │
     │   ┌──────────────────────────────────────────────┐
     │   │              RED HOMELAB                     │
     │   │                                              │
     └───┼── [USB] RPi Gateway [eth0] ─── Switch ───┬── RPi 2 (netboot)
-        │        192.168.1.84 │ 10.0.0.1           ├── RPi 3 (netboot)
+        │        WAN DHCP     │ 10.0.0.1           ├── RPi 3 (netboot)
         │                     │                    └── 10.0.0.x
         │   ┌─────────────────┘
         │   │ WireGuard VPN
@@ -81,7 +81,7 @@ Internet
 
 | Red | Rango | Propósito |
 |-----|-------|-----------|
-| LAN Casa | 192.168.1.0/24 | Red principal del modem |
+| WAN (Modem) | 192.168.100.0/24 | Red del modem (DHCP) |
 | LAN Homelab | 10.0.0.0/24 | Red interna segmentada |
 | VPN | 10.0.1.0/24 | Acceso remoto via WireGuard |
 
@@ -168,21 +168,32 @@ homelab-ansible/
 ├── inventory/
 │   └── inventory.yml
 ├── playbooks/
-│   └── gateway.yml
+│   ├── gateway.yml          # Configurar gateway completo
+│   ├── wireguard.yml        # Configurar WireGuard VPN
+│   ├── setup-netboot-server.yml  # Configurar servidor netboot
+│   ├── setup-ssh.yml        # Distribuir claves SSH
+│   ├── prepare-node.yml     # Preparar nodo para netboot
+│   ├── common.yml           # Config base (timezone, NTP, packages)
+│   ├── node-info.yml        # Info de todos los nodos
+│   ├── reboot-nodes.yml     # Reinicio controlado
+│   ├── update-nodes.yml     # Actualizar paquetes
+│   └── update-kernel.yml    # Actualizar kernel
 └── roles/
     ├── wireguard/
     │   ├── defaults/main.yml
     │   ├── handlers/main.yml
     │   ├── tasks/main.yml
     │   └── templates/wg0.conf.j2
-    └── dnsmasq/
+    ├── dnsmasq/
+    │   ├── defaults/main.yml
+    │   ├── handlers/main.yml
+    │   ├── tasks/main.yml
+    │   ├── templates/dnsmasq.conf.j2
+    │   └── README.md
+    └── nfs/
         ├── defaults/main.yml
         ├── handlers/main.yml
-        ├── tasks/main.yml
-        ├── templates/
-        │   ├── dnsmasq.conf.j2
-        │   └── netplan-dns.yaml.j2
-        └── README.md
+        └── tasks/main.yml
 ```
 
 ## Configuración de Ansible
@@ -202,8 +213,8 @@ all:
     gateway:
       hosts:
         rp1-master:
-          ansible_host: 192.168.1.84
-          ansible_user: rp1-master
+          ansible_host: 10.0.0.1  # Conexión via VPN
+          ansible_user: admin
           ansible_python_interpreter: /usr/bin/python3
 ```
 
@@ -297,7 +308,7 @@ Address = 10.0.1.2/24
 
 [Peer]
 PublicKey = VIFt08+ZU2nQCnhXAOAMMS+ycH8d6PGLY+hcqZbXhAw=
-Endpoint = 192.168.1.84:51820
+Endpoint = <IP_WAN_GATEWAY>:51820  # IP WAN del gateway (dinámica)
 AllowedIPs = 10.0.0.0/24, 10.0.1.0/24
 PersistentKeepalive = 25
 ```
@@ -353,7 +364,7 @@ ping rp2.homelab.local
 1. Verificar servicio: `sudo systemctl status wg-quick@wg0`
 2. Verificar puerto: `sudo ss -ulnp | grep 51820`
 3. Verificar llaves: la llave **pública** de cada lado va en el `[Peer]` del otro
-4. Verificar endpoint: debe ser la IP del gateway (192.168.1.84)
+4. Verificar endpoint: debe ser la IP WAN del gateway (dinámica, verificar en modem)
 
 ### Ansible no conecta
 
@@ -384,9 +395,9 @@ ping rp2.homelab.local
 - [x] TFTP para PXE boot
 - [x] NFS para root filesystem
 - [x] Netboot de rp2
-- [ ] Role NFS en Ansible
-- [ ] Role storage (SSD) en Ansible
-- [ ] Netboot de rp3
+- [x] Netboot de rp3
+- [x] Role NFS en Ansible
+- [x] NAT/IP forwarding
 - [ ] Firewall (ufw)
 - [ ] Docker en nodos
 - [ ] k3s cluster
@@ -401,6 +412,7 @@ Ver [docs/decisions/](../docs/decisions/) para ADRs completos.
 | 001 | [WireGuard sobre OpenVPN](../docs/decisions/001-wireguard-over-openvpn.md) |
 | 002 | [Segmentación de red con Raspberry Pi](../docs/decisions/002-network-segmentation.md) |
 | 003 | [dnsmasq como DHCP, DNS y TFTP](../docs/decisions/003-dnsmasq-dhcp-dns-tftp.md) |
+| 004 | [IP Forwarding y NAT](../docs/decisions/004-ip-forwarding-nat.md) |
 
 ## Lecciones aprendidas
 
