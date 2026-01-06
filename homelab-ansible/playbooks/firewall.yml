@@ -1,0 +1,298 @@
+# Playbook : firewall.yml
+# Proposito: configurado firewall (ufw) en el gateway y nodos
+#
+# Uso:
+#   ansible-playbook playbooks/firewall.yml                     # todos
+#   ansible-playbook playbooks/firewall.yml --limit gateway     # solo gateway
+#   ansible-playbook playbooks/firewall.yml --limit nodes       # solo nodos
+#
+- name: configurar firewall en gateway
+  hosts: gateway
+  become: yes
+
+  vars:
+    lan_network: "10.0.0.0/24"
+    vpn_network: "10.0.1.0/24"
+    wan_interface: "enx00e04c683da2"
+    lan_interface: "eth0"
+
+  tasks:
+    # ========================================
+    # instalacion
+    # ========================================
+    - name: instalar ufw
+      apt:
+        name: ufw
+        state: present
+      tags: install
+
+    # =======================================
+    # Politica por defecto
+    # =======================================
+    - name: configurar politica por defecto - permitir salida
+      ufw:
+        direction: outgoing
+        policy: allow
+      tags: policy
+
+    - name: configurar politica por defecto - denegar entrada
+      ufw:
+        direction: incoming
+        policy: deny
+      tags: policy
+
+    # ======================================
+    # reglas ssh
+    # ======================================
+    - name: permitir SSH desde LAN
+      ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+        from_ip: "{{ lan_network }}"
+        comment: "SSH fron LAN"
+      tags: ssh
+
+    - name: permitir SSH desde VPN
+      ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+        from_ip: "{{ vpn_network }}"
+        comment: "SSH desde VPN"
+      tags: ssh
+
+    - name: limitar SSH desde WAN (rate limit)
+      ufw:
+        rule: limit
+        port: "22"
+        proto: tcp
+        comment: "SSH desde WAN con limit rate"
+      tags: ssh
+
+    # ========================================
+    # reglas wireguard
+    # ========================================
+    - name: permitir WireGuard desde cualquier lugar
+      ufw:
+        rule: allow
+        port: "51820"
+        proto: udp
+        comment: "WireGuard desde VPN"
+      tags: wireguard
+
+    # =======================================
+    # reglas - dns
+    # =======================================
+    - name: permitir DNS desde LAN
+      ufw:
+        rule: allow
+        port: "53"
+        from_ip: "{{ lan_network }}"
+        comment: "DNS desde LAN"
+      tags: dns
+
+    - name: permitir DNS desde VPN
+      ufw:
+        rule: allow
+        port: "53"
+        from_ip: "{{ vpn_network}}"
+        comment: "DNS desde VPN"
+      tags: dns
+
+    # =======================================
+    # reglas - dhcp
+    # =======================================
+    - name: permitir DHCP desde LAN
+      ufw:
+        rule: allow
+        port: "67:68"
+        proto: udp
+        from_ip: "{{ lan_network}}"
+        comment: "DHCP desde LAN"
+      tags: dhcp
+
+    # =======================================
+    # reglas - TFTP
+    # =======================================
+    - name: permitir TFTP desde LAN
+      ufw:
+        rule: allow
+        port: "69"
+        proto: udp
+        from_ip: "{{ lan_network}}"
+        comment: "TFTP desde LAN"
+      tags: tftp
+
+    # =======================================
+    # reglas - NFS
+    # =======================================
+    - name: permitir NFS desde VPN
+      ufw:
+        rule: allow
+        port: "2049"
+        proto: tcp
+        from_ip: "{{ vpn_network }}"
+        comment: "NFS desde VPN"
+      tags: nfs
+
+    - name: permitir NFS desde LAN
+      ufw:
+        rule: allow
+        port: "2049"
+        proto: tcp
+        from_ip: "{{ lan_network }}"
+        comment: "NFS desde LAN"
+      tags: nfs
+
+    - name: permitir RCP portmapper desde LAN
+      ufw:
+        rule: allow
+        port: "111"
+        proto: tcp
+        from_ip: "{{ lan_network }}"
+        comment: "RCP portmaper desde LAN"
+      tags: nfs
+
+    - name: permitir RCP portmapper desde VPN
+      ufw:
+        rule: allow
+        port: "111"
+        proto: tcp
+        from_ip: "{{ vpn_network }}"
+        comment: "RCP portmaper desde VPN"
+      tags: nfs
+
+    # ===================================================
+    # reglas - http/https (para servicios web futuros)
+    # ===================================================
+    - name: permitir HTTP desde cualquier lugar
+      ufw:
+        rule: allow
+        port: "80"
+        proto: tcp
+        comment: "http"
+      tags: web
+
+    - name: permitir HTTPS desde cualquier lugar
+      ufw:
+        rule: allow
+        port: "443"
+        proto: tcp
+        comment: "https"
+      tags: web
+
+    # ===================================================
+    # forwarding (necesario para NAT)
+    # ===================================================
+    - name: habilitar forwarding en ufw
+      lineinfile:
+        path: /etc/default/ufw
+        regexp: "^DEFAULT_FORWARD_POLICY="
+        line: 'DEFAULT_FORWARD_POLICY="ACCEPT"'
+      tags: forward
+      notify: Reload ufw
+
+    # ===================================================
+    # habilitar firewall
+    # ===================================================
+    - name: habilitar ufw
+      ufw:
+        state: enabled
+      tags: enable
+
+    # ===================================================
+    # resumen
+    # ===================================================
+    - name: obtener estado del firewall
+      command: ufw status verbose
+      register: ufw_status
+      changed_when: false
+      tags: always
+
+    - name: mostrar estado del firewall
+      debug:
+        msg: "{{ ufw_status.stdout_lines }}"
+      tags: always
+
+  handlers:
+    - name: Reload ufw
+      ufw:
+        state: reloaded
+
+# =================================================
+# Firewall para nodos
+# =================================================
+- name: configurar firewall para nodos
+  hosts: nodes
+  become: yes
+
+  vars:
+    lan_network: "10.0.0.0/24"
+    vpn_network: "10.0.1.0/24"
+    gateway_ip: "10.0.0.1"
+
+  tasks:
+    - name: instalar ufw
+      apt:
+        name: ufw
+        state: present
+      tags: install
+
+    - name: resetear ufw
+      command: ufw --force reset
+      changed_when: false
+      tags: install
+
+    - name: configurar politica por defector (denegar entrada)
+      ufw:
+        direction: incoming
+        policy: deny
+      tags: policy
+
+    - name: configurar politica por defecto - permitir salida
+      ufw:
+        direction: outgoing
+        policy: allow
+      tags: policy
+
+    - name: permitir todo desde gateway (NFS boot)
+      ufw:
+        rule: allow
+        from_ip: "{{ gateway_ip }}"
+        comment: "todo desde gateway"
+      tags: gateway
+
+    - name: permitir ssh desde LAN
+      ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+        from_ip: "{{ lan_network }}"
+        comment: "SSH desde LAN"
+      tags: ssh
+
+    - name: permitir SSH desde VPN
+      ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+        from_ip: "{{ vpn_network }}"
+        comment: "SSH desde VPN"
+      tags: ssh
+
+    - name: habilitar ufw
+      ufw:
+        state: enabled
+      tags: enable
+
+    - name: obtener estado del firewall
+      command: ufw status verbose
+      register: ufw_status
+      changed_when: false
+      tags: always
+
+    - name: mostrar estado del firewall
+      debug:
+        msg: "{{ ufw_status.stdout_lines }}"
+      tags: always
