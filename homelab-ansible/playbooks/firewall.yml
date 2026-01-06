@@ -1,5 +1,5 @@
 # Playbook : firewall.yml
-# Proposito: configurado firewall (ufw) en el gateway y nodos
+# Proposito: configurar firewall (ufw) en el gateway y nodos
 #
 # Uso:
 #   ansible-playbook playbooks/firewall.yml                     # todos
@@ -29,30 +29,56 @@
     # =======================================
     # Politica por defecto
     # =======================================
-    - name: configurar politica por defecto - permitir salida
-      ufw:
-        direction: outgoing
-        policy: allow
-      tags: policy
-
     - name: configurar politica por defecto - denegar entrada
       ufw:
         direction: incoming
         policy: deny
       tags: policy
 
+    - name: configurar politica por defecto - permitir salida
+      ufw:
+        direction: outgoing
+        policy: allow
+      tags: policy
+
     # ======================================
-    # reglas ssh
+    # reglas LAN - permitir todo (netboot)
     # ======================================
-    - name: permitir SSH desde LAN
+    - name: permitir todo desde LAN (necesario para NFS netboot)
       ufw:
         rule: allow
-        port: "22"
-        proto: tcp
+        interface: "{{ lan_interface }}"
+        direction: in
         from_ip: "{{ lan_network }}"
-        comment: "SSH fron LAN"
-      tags: ssh
+        comment: "Todo desde LAN (netboot)"
+      tags: lan
 
+    # ======================================
+    # reglas DHCP/TFTP broadcast
+    # ======================================
+    - name: permitir DHCP broadcast en LAN
+      ufw:
+        rule: allow
+        interface: "{{ lan_interface }}"
+        direction: in
+        port: "67:68"
+        proto: udp
+        comment: "DHCP broadcast en LAN"
+      tags: dhcp
+
+    - name: permitir TFTP en LAN
+      ufw:
+        rule: allow
+        interface: "{{ lan_interface }}"
+        direction: in
+        port: "69"
+        proto: udp
+        comment: "TFTP en LAN"
+      tags: tftp
+
+    # ======================================
+    # reglas SSH
+    # ======================================
     - name: permitir SSH desde VPN
       ufw:
         rule: allow
@@ -67,7 +93,7 @@
         rule: limit
         port: "22"
         proto: tcp
-        comment: "SSH desde WAN con limit rate"
+        comment: "SSH desde WAN con rate limit"
       tags: ssh
 
     # ========================================
@@ -78,55 +104,20 @@
         rule: allow
         port: "51820"
         proto: udp
-        comment: "WireGuard desde VPN"
+        comment: "WireGuard VPN"
       tags: wireguard
 
     # =======================================
-    # reglas - dns
+    # reglas VPN - servicios internos
     # =======================================
-    - name: permitir DNS desde LAN
-      ufw:
-        rule: allow
-        port: "53"
-        from_ip: "{{ lan_network }}"
-        comment: "DNS desde LAN"
-      tags: dns
-
     - name: permitir DNS desde VPN
       ufw:
         rule: allow
         port: "53"
-        from_ip: "{{ vpn_network}}"
+        from_ip: "{{ vpn_network }}"
         comment: "DNS desde VPN"
       tags: dns
 
-    # =======================================
-    # reglas - dhcp
-    # =======================================
-    - name: permitir DHCP desde LAN
-      ufw:
-        rule: allow
-        port: "67:68"
-        proto: udp
-        from_ip: "{{ lan_network}}"
-        comment: "DHCP desde LAN"
-      tags: dhcp
-
-    # =======================================
-    # reglas - TFTP
-    # =======================================
-    - name: permitir TFTP desde LAN
-      ufw:
-        rule: allow
-        port: "69"
-        proto: udp
-        from_ip: "{{ lan_network}}"
-        comment: "TFTP desde LAN"
-      tags: tftp
-
-    # =======================================
-    # reglas - NFS
-    # =======================================
     - name: permitir NFS desde VPN
       ufw:
         rule: allow
@@ -136,31 +127,13 @@
         comment: "NFS desde VPN"
       tags: nfs
 
-    - name: permitir NFS desde LAN
-      ufw:
-        rule: allow
-        port: "2049"
-        proto: tcp
-        from_ip: "{{ lan_network }}"
-        comment: "NFS desde LAN"
-      tags: nfs
-
-    - name: permitir RCP portmapper desde LAN
-      ufw:
-        rule: allow
-        port: "111"
-        proto: tcp
-        from_ip: "{{ lan_network }}"
-        comment: "RCP portmaper desde LAN"
-      tags: nfs
-
-    - name: permitir RCP portmapper desde VPN
+    - name: permitir RPC portmapper desde VPN
       ufw:
         rule: allow
         port: "111"
         proto: tcp
         from_ip: "{{ vpn_network }}"
-        comment: "RCP portmaper desde VPN"
+        comment: "RPC portmapper desde VPN"
       tags: nfs
 
     # ===================================================
@@ -171,7 +144,7 @@
         rule: allow
         port: "80"
         proto: tcp
-        comment: "http"
+        comment: "HTTP"
       tags: web
 
     - name: permitir HTTPS desde cualquier lugar
@@ -179,7 +152,7 @@
         rule: allow
         port: "443"
         proto: tcp
-        comment: "https"
+        comment: "HTTPS"
       tags: web
 
     # ===================================================
@@ -239,12 +212,7 @@
         state: present
       tags: install
 
-    - name: resetear ufw
-      command: ufw --force reset
-      changed_when: false
-      tags: install
-
-    - name: configurar politica por defector (denegar entrada)
+    - name: configurar politica por defecto - denegar entrada
       ufw:
         direction: incoming
         policy: deny
@@ -260,10 +228,10 @@
       ufw:
         rule: allow
         from_ip: "{{ gateway_ip }}"
-        comment: "todo desde gateway"
+        comment: "Todo desde gateway"
       tags: gateway
 
-    - name: permitir ssh desde LAN
+    - name: permitir SSH desde LAN
       ufw:
         rule: allow
         port: "22"

@@ -6,7 +6,7 @@ Guía para configurar firewall en el gateway usando UFW e iptables.
 
 El firewall está configurado via Ansible con el playbook `firewall.yml`:
 
-- **Gateway**: UFW con reglas para SSH, DNS, DHCP, TFTP, NFS, WireGuard, HTTP/S
+- **Gateway**: UFW que permite todo desde LAN (necesario para netboot), reglas específicas para VPN y WAN
 - **Nodos**: UFW con reglas mínimas (SSH desde LAN/VPN, todo desde gateway)
 
 ```bash

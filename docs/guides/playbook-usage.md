@@ -264,15 +264,17 @@ ansible-playbook playbooks/firewall.yml --check
 |-----|-------------|
 | install | Instalar UFW |
 | policy | Políticas por defecto |
+| lan | Permitir todo desde LAN (netboot) |
+| dhcp | Reglas DHCP broadcast |
+| tftp | Reglas TFTP |
 | ssh | Reglas SSH |
 | wireguard | Reglas WireGuard |
-| dns | Reglas DNS |
-| dhcp | Reglas DHCP |
-| tftp | Reglas TFTP |
-| nfs | Reglas NFS |
+| dns | Reglas DNS (VPN) |
+| nfs | Reglas NFS (VPN) |
 | web | Reglas HTTP/HTTPS |
 | forward | Configurar forwarding |
 | enable | Habilitar firewall |
+| gateway | Reglas desde gateway (solo nodos) |
 
 **Importante**:
 - Ejecutar con `--check` primero para verificar cambios

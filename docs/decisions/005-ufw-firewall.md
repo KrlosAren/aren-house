@@ -35,14 +35,18 @@ Elegimos UFW como interfaz para gestionar iptables por:
 
 #### Gateway (rp1-master)
 
+**Desde LAN (eth0)**: Permitir todo el tráfico.
+
+Justificación: Los nodos netboot requieren DHCP, TFTP y NFS para arrancar. Es más simple y confiable permitir todo desde la interfaz LAN que gestionar reglas individuales. La seguridad perimetral se aplica en WAN.
+
+**Desde VPN y WAN**:
+
 | Puerto | Protocolo | Desde | Servicio |
 |--------|-----------|-------|----------|
-| 22 | TCP | LAN, VPN | SSH |
-| 53 | TCP/UDP | LAN, VPN | DNS |
-| 67-68 | UDP | LAN | DHCP |
-| 69 | UDP | LAN | TFTP |
-| 111 | TCP | LAN, VPN | RPC (NFS) |
-| 2049 | TCP | LAN, VPN | NFS |
+| 22 | TCP | VPN, WAN (limit) | SSH |
+| 53 | TCP/UDP | VPN | DNS |
+| 111 | TCP | VPN | RPC (NFS) |
+| 2049 | TCP | VPN | NFS |
 | 51820 | UDP | ANY | WireGuard |
 | 80, 443 | TCP | ANY | HTTP/S (futuro) |
 
