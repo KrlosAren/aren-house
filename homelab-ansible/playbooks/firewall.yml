@@ -6,6 +6,9 @@
 #   ansible-playbook playbooks/firewall.yml --limit gateway     # solo gateway
 #   ansible-playbook playbooks/firewall.yml --limit nodes       # solo nodos
 #
+# IMPORTANTE: Las reglas de allow se crean ANTES de las políticas deny
+# para evitar bloquear la conexión SSH durante la ejecución.
+#
 - name: configurar firewall en gateway
   hosts: gateway
   become: yes
@@ -26,24 +29,11 @@
         state: present
       tags: install
 
-    # =======================================
-    # Politica por defecto
-    # =======================================
-    - name: configurar politica por defecto - denegar entrada
-      ufw:
-        direction: incoming
-        policy: deny
-      tags: policy
-
-    - name: configurar politica por defecto - permitir salida
-      ufw:
-        direction: outgoing
-        policy: allow
-      tags: policy
-
     # ======================================
+    # PRIMERO: reglas de allow
+    # ======================================
+
     # reglas LAN - permitir todo (netboot)
-    # ======================================
     - name: permitir todo desde LAN (necesario para NFS netboot)
       ufw:
         rule: allow
@@ -53,9 +43,7 @@
         comment: "Todo desde LAN (netboot)"
       tags: lan
 
-    # ======================================
     # reglas DHCP/TFTP broadcast
-    # ======================================
     - name: permitir DHCP broadcast en LAN
       ufw:
         rule: allow
@@ -76,9 +64,7 @@
         comment: "TFTP en LAN"
       tags: tftp
 
-    # ======================================
     # reglas SSH
-    # ======================================
     - name: permitir SSH desde VPN
       ufw:
         rule: allow
@@ -96,9 +82,7 @@
         comment: "SSH desde WAN con rate limit"
       tags: ssh
 
-    # ========================================
     # reglas wireguard
-    # ========================================
     - name: permitir WireGuard desde cualquier lugar
       ufw:
         rule: allow
@@ -107,9 +91,7 @@
         comment: "WireGuard VPN"
       tags: wireguard
 
-    # =======================================
     # reglas VPN - servicios internos
-    # =======================================
     - name: permitir DNS desde VPN
       ufw:
         rule: allow
@@ -136,9 +118,7 @@
         comment: "RPC portmapper desde VPN"
       tags: nfs
 
-    # ===================================================
-    # reglas - http/https (para servicios web futuros)
-    # ===================================================
+    # reglas http/https (para servicios web futuros)
     - name: permitir HTTP desde cualquier lugar
       ufw:
         rule: allow
@@ -155,6 +135,21 @@
         comment: "HTTPS"
       tags: web
 
+    # =======================================
+    # SEGUNDO: Politicas por defecto
+    # =======================================
+    - name: configurar politica por defecto - denegar entrada
+      ufw:
+        direction: incoming
+        policy: deny
+      tags: policy
+
+    - name: configurar politica por defecto - permitir salida
+      ufw:
+        direction: outgoing
+        policy: allow
+      tags: policy
+
     # ===================================================
     # forwarding (necesario para NAT)
     # ===================================================
@@ -167,7 +162,7 @@
       notify: Reload ufw
 
     # ===================================================
-    # habilitar firewall
+    # TERCERO: habilitar firewall
     # ===================================================
     - name: habilitar ufw
       ufw:
@@ -212,18 +207,9 @@
         state: present
       tags: install
 
-    - name: configurar politica por defecto - denegar entrada
-      ufw:
-        direction: incoming
-        policy: deny
-      tags: policy
-
-    - name: configurar politica por defecto - permitir salida
-      ufw:
-        direction: outgoing
-        policy: allow
-      tags: policy
-
+    # ======================================
+    # PRIMERO: reglas de allow
+    # ======================================
     - name: permitir todo desde gateway (NFS boot)
       ufw:
         rule: allow
@@ -249,6 +235,24 @@
         comment: "SSH desde VPN"
       tags: ssh
 
+    # ======================================
+    # SEGUNDO: Politicas por defecto
+    # ======================================
+    - name: configurar politica por defecto - denegar entrada
+      ufw:
+        direction: incoming
+        policy: deny
+      tags: policy
+
+    - name: configurar politica por defecto - permitir salida
+      ufw:
+        direction: outgoing
+        policy: allow
+      tags: policy
+
+    # ======================================
+    # TERCERO: habilitar firewall
+    # ======================================
     - name: habilitar ufw
       ufw:
         state: enabled
