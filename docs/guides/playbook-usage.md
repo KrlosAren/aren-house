@@ -229,6 +229,57 @@ ansible-playbook playbooks/wireguard.yml
 
 ---
 
+### firewall.yml
+
+**Propósito**: Configurar firewall (UFW) en gateway y nodos.
+
+**Cuándo usar**:
+- Instalación inicial del firewall
+- Después de agregar nuevos servicios que requieren puertos
+- Modificar reglas de acceso
+
+**Ejecutar desde**: Tu Mac (via VPN)
+
+```bash
+cd homelab-ansible
+
+# Configurar firewall en todos los hosts
+ansible-playbook playbooks/firewall.yml
+
+# Solo gateway
+ansible-playbook playbooks/firewall.yml --limit gateway
+
+# Solo nodos
+ansible-playbook playbooks/firewall.yml --limit nodes
+
+# Solo reglas SSH
+ansible-playbook playbooks/firewall.yml --tags ssh
+
+# Dry-run primero
+ansible-playbook playbooks/firewall.yml --check
+```
+
+**Tags disponibles**:
+| Tag | Descripción |
+|-----|-------------|
+| install | Instalar UFW |
+| policy | Políticas por defecto |
+| ssh | Reglas SSH |
+| wireguard | Reglas WireGuard |
+| dns | Reglas DNS |
+| dhcp | Reglas DHCP |
+| tftp | Reglas TFTP |
+| nfs | Reglas NFS |
+| web | Reglas HTTP/HTTPS |
+| forward | Configurar forwarding |
+| enable | Habilitar firewall |
+
+**Importante**:
+- Ejecutar con `--check` primero para verificar cambios
+- Si pierdes acceso SSH, necesitarás acceso físico al dispositivo
+
+---
+
 ## Orden de Ejecución para Nuevo Nodo
 
 1. **Instalar Ubuntu** en microSD y bootear el nuevo Raspberry Pi

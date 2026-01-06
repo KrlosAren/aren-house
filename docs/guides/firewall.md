@@ -4,9 +4,20 @@ Guía para configurar firewall en el gateway usando UFW e iptables.
 
 ## Estado Actual
 
-Actualmente el gateway no tiene firewall configurado. Solo hay reglas iptables para:
-- NAT (MASQUERADE) para dar internet a la red interna
-- FORWARD para tráfico VPN (via WireGuard PostUp/PostDown)
+El firewall está configurado via Ansible con el playbook `firewall.yml`:
+
+- **Gateway**: UFW con reglas para SSH, DNS, DHCP, TFTP, NFS, WireGuard, HTTP/S
+- **Nodos**: UFW con reglas mínimas (SSH desde LAN/VPN, todo desde gateway)
+
+```bash
+# Aplicar configuración
+ansible-playbook playbooks/firewall.yml
+
+# Ver estado
+sudo ufw status verbose
+```
+
+Ver [ADR-005: UFW Firewall](../decisions/005-ufw-firewall.md) para decisiones de diseño.
 
 ## Reglas Necesarias por Servicio
 
@@ -279,7 +290,8 @@ sudo journalctl -f | grep IPT
 
 ## Próximos Pasos
 
-1. Crear rol Ansible para firewall
-2. Implementar reglas más restrictivas por host
-3. Agregar rate limiting para protección contra fuerza bruta
-4. Considerar fail2ban para SSH
+1. ~~Crear rol Ansible para firewall~~ (completado: `playbooks/firewall.yml`)
+2. ~~Agregar rate limiting para protección contra fuerza bruta~~ (completado: `ufw limit` en SSH)
+3. Considerar fail2ban para SSH
+4. Agregar logging de paquetes rechazados
+5. Revisar reglas HTTP/HTTPS cuando se desplieguen servicios web

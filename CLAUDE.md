@@ -88,6 +88,7 @@ homelab-ansible/
 ├── playbooks/
 │   ├── gateway.yml          # Configure complete rp1-master
 │   ├── wireguard.yml        # Configure WireGuard VPN
+│   ├── firewall.yml         # Configure UFW firewall on gateway and nodes
 │   ├── setup-netboot-server.yml  # Configure netboot server (TFTP/NFS)
 │   ├── setup-ssh.yml        # Distribute SSH keys to nodes
 │   ├── prepare-node.yml     # Prepare new node for netboot
@@ -183,8 +184,9 @@ docs/
 │   ├── 001-wireguard-over-openvpn.md
 │   ├── 002-network-segmentation.md
 │   ├── 003-dnsmasq-dhcp-dns-tftp.md
-│   └── 004-ip-forwarding-nat.md
-├── concepts/            # Theory: DHCP, DNS, TFTP, PXE, NAT, VPN, iptables, systemd, NFS, EEPROM
+│   ├── 004-ip-forwarding-nat.md
+│   └── 005-ufw-firewall.md
+├── concepts/            # Theory: DHCP, DNS, TFTP, PXE, NAT, VPN, iptables, systemd, NFS, EEPROM, UFW
 ├── guides/              # How-to: playbook-usage, firewall, service-management, network-troubleshooting
 ├── runbooks/            # Procedures: disaster-recovery, maintenance
 ├── ansible-guide.md     # Complete Ansible guide
@@ -206,7 +208,7 @@ docs/
 
 ## Pending
 
-- [ ] Firewall (ufw) with rules between networks
+- [x] Firewall (ufw) with rules between networks - `playbooks/firewall.yml`
 - [ ] Docker on nodes
 - [ ] k3s cluster
 - [ ] Monitoring with Prometheus/Grafana
