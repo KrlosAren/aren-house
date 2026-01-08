@@ -1,0 +1,49 @@
+# Playbook: tailscale.yml
+# Propósito: Instalar y configurar Tailscale en el gateway
+#
+# Uso:
+#   ansible-playbook playbooks/tailscale.yml
+#
+# Nota: Después de ejecutar, debes autenticar manualmente con:
+#   sudo tailscale up --advertise-routes=10.0.0.0/24
+#
+- name: Instalar Tailscale
+  hosts: gateway
+  become: yes
+
+  tasks:
+    - name: Instalar Tailscale via script oficial
+      shell: curl -fsSL https://tailscale.com/install.sh | sh
+      args:
+        creates: /usr/bin/tailscale
+      tags: install
+
+    - name: Habilitar IP forwarding IPv4
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: '1'
+        sysctl_set: yes
+        state: present
+        reload: yes
+      tags: config
+
+    - name: Habilitar IP forwarding IPv6
+      sysctl:
+        name: net.ipv6.conf.all.forwarding
+        value: '1'
+        sysctl_set: yes
+        state: present
+        reload: yes
+      tags: config
+
+    - name: Verificar estado de Tailscale
+      command: tailscale status
+      register: tailscale_status
+      changed_when: false
+      ignore_errors: yes
+      tags: verify
+
+    - name: Mostrar estado de Tailscale
+      debug:
+        msg: "{{ tailscale_status.stdout_lines }}"
+      tags: verify

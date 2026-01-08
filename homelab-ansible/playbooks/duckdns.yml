@@ -1,0 +1,86 @@
+# Playbook: duckdns.yml
+# Propósito: Configurar DuckDNS para actualizar IP pública automáticamente
+#
+# Uso:
+#   ansible-playbook playbooks/duckdns.yml
+#
+# Variables requeridas:
+#   -e "duckdns_token=xxx" o definir en vault
+- name: configurar DuckDNS
+  hosts: gateway
+  become: yes
+
+  vars:
+    duckdns_domain: "aren-homelab"
+    duckdns_dir: "/opt/duckdns"
+
+  tasks:
+    
+    - name: verificar que duckdns_token esta definido
+      fail:
+        msg: "debes proporcionar duckdns_token con -e 'duckdns_token=xxx'"
+      when: duckdns_token is not defined
+      tags: always
+
+    - name: crear directorio duckdns
+      file:
+        path: "{{ duckdns_dir }}"
+        state: directory
+        mode: "0700"
+        owner: root
+        group: root
+      tags: install
+
+    - name: crear script de actualizacion
+      copy:
+        dest: "{{ duckdns_dir }}/duck.sh"
+        mode: "0700"
+        owner: root
+        group: root
+        content: |
+          #!/bin/bash
+          # script de actualizacion de DuckDNS
+          # generador por Ansible - no editar manualmente
+
+          DOMAIN="{{ duckdns_domain }}"
+          TOKEN="{{ duckdns_token }}"
+          LOG="{{ duckdns_dir }}/duck.log"
+
+          RESPONSE=$(curl -s "https://www.duckdns.org/update?domains=${DOMAIN}&token=${TOKEN}&ip=")
+
+          echo "$(date '+%Y-%m-%d %H:%M:%S') - ${RESPONSE}" >> ${LOG}
+
+          # mantener solo las ultimas 100 lineas del log
+          tail -100 ${LOG} > ${LOG}.tmp && mv ${LOG}.tmp ${LOG}
+      tags: install
+
+    - name: ejecutar actualizacion inicial
+      command: "{{ duckdns_dir }}/duck.sh"
+      register: duck_log
+      changed_when: false
+      tags: install
+
+
+    - name: verificar resultado inicial
+      debug:
+        msg: "{{ duck_log.stdout_lines }}"
+      tags: install
+
+    - name: crear cron job (cada 5 minutos)
+      cron:
+        name: "DuckDNS update"
+        minute: "*/5"
+        job: "{{ duckdns_dir }}/duck.sh > /dev/null 2>&1"
+        user: root
+      tags: cron
+
+    - name: verificar configuracion de cron
+      command: crontab -l
+      register: cron_result
+      changed_when: false
+      tags: verify
+
+    - name: mostrar cron configurado
+      debug:
+        msg: "{{ cron_result.stdout_lines }}"
+      tags: verify
