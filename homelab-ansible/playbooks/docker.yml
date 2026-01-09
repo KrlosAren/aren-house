@@ -1,0 +1,145 @@
+# Playbook: docker.yml
+# Propósito: Instalar Docker en los nodos
+#
+# Uso:
+#   ansible-playbook playbooks/docker.yml
+#   ansible-playbook playbooks/docker.yml --limit rp2-node
+#
+- name: instalar docker
+  hosts: nodes
+  become: yes
+
+  tasks:
+    # ========================================
+    # Dependencias
+    # ========================================
+    - name: instalar dependencias
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+        update_cache: yes
+      tags: deps
+
+    # ========================================
+    # Repositorio Docker
+    # ========================================
+    - name: crear directorio para keyrings
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+      tags: repo
+
+    - name: agregar clave GPC de Docker
+      shell: |
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        chmod a+r /etc/apt/keyrings/docker.gpg
+      args:
+        creates: /etc/apt/keyrings/docker.gpg
+      tags: repo
+
+    - name: agregar repositorio de docker
+      shell: |
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+      args:
+        creates: /etc/apt/sources.list.d/docker.list
+      tags: repo
+
+    # ========================================
+    # Instalar Docker
+    # ========================================
+    - name: actualizar cache de apt
+      apt:
+        update_cache: yes
+      tags: install
+
+    - name: instalar docker
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+      tags: install
+
+    # ========================================
+    # Configurar storage driver para NFS
+    # ========================================
+    - name: Crear directorio de configuración de Docker
+      file:
+        path: /etc/docker
+        state: directory
+        mode: "0755"
+      tags: config
+
+    - name: Configurar storage driver vfs (requerido para NFS boot)
+      copy:
+        dest: /etc/docker/daemon.json
+        content: |
+          {
+            "storage-driver": "vfs"
+          }
+        mode: "0644"
+      notify: Reiniciar Docker
+      tags: config
+
+    # ========================================
+    # Configurar usuario
+    # ========================================
+    - name: agregar usuario admin al grupo docker
+      user:
+        name: admin
+        groups: docker
+        append: yes
+      tags: config
+
+    # ========================================
+    # Iniciar servicio
+    # ========================================
+    - name: habilitar y arrancar docker
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+      tags: service
+
+    # ========================================
+    # Verificar
+    # ========================================
+    - name: verificar instalacion de docker
+      command: docker --version
+      register: docker_version
+      changed_when: false
+      tags: verify
+
+    - name: verificar docker docker compose
+      command: docker compose version
+      register: compose_version
+      changed_when: false
+      tags: verify
+
+    - name: Verificar storage driver
+      command: docker info --format '{{ "{{" }}.Driver{{ "}}" }}'
+      register: docker_driver
+      changed_when: false
+      tags: verify
+
+    - name: mostrar versiones
+      debug:
+        msg:
+          - "{{ docker_version.stdout }}"
+          - "{{ compose_version.stdout }}"
+          - "Storage driver: {{ docker_driver.stdout }}"
+      tags: verify
+  
+  handlers:
+    - name: Reiniciar Docker
+      systemd:
+        name: docker
+        state: restarted
