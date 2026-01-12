@@ -282,6 +282,231 @@ ansible-playbook playbooks/firewall.yml --check
 
 ---
 
+### common.yml
+
+**Propósito**: Configuración base para todos los nodos (timezone, NTP, locales, paquetes).
+
+**Cuándo usar**:
+- Configuración inicial de un nodo nuevo
+- Asegurar que todos los nodos tengan la misma configuración base
+- Después de agregar un nuevo nodo al cluster
+
+**Ejecutar desde**: Tu Mac (via VPN)
+
+```bash
+cd homelab-ansible
+
+# Todos los nodos
+ansible-playbook playbooks/common.yml
+
+# Solo workers
+ansible-playbook playbooks/common.yml --limit nodes
+
+# Solo paquetes
+ansible-playbook playbooks/common.yml --tags packages
+
+# Solo timezone
+ansible-playbook playbooks/common.yml --tags timezone
+```
+
+**Tags disponibles**:
+| Tag | Descripción |
+|-----|-------------|
+| timezone | Configurar timezone (America/Santiago) |
+| ntp | Instalar y configurar chrony |
+| locales | Configurar locales (en_US.UTF-8, es_CL.UTF-8) |
+| packages | Instalar paquetes básicos |
+| hostname | Mostrar hostname actual |
+
+**Paquetes instalados**:
+htop, vim, curl, wget, git, tree, net-tools, dnsutils, jq
+
+---
+
+### node-info.yml
+
+**Propósito**: Obtener información detallada de todos los nodos del homelab.
+
+**Cuándo usar**:
+- Verificar estado del cluster
+- Diagnóstico de problemas
+- Revisar recursos disponibles
+
+**Ejecutar desde**: Tu Mac (via VPN)
+
+```bash
+cd homelab-ansible
+
+# Todos los nodos
+ansible-playbook playbooks/node-info.yml
+
+# Solo un nodo específico
+ansible-playbook playbooks/node-info.yml --limit rp2-node
+```
+
+**Información que muestra**:
+- **Sistema**: hostname, OS, kernel, uptime, temperatura
+- **Recursos**: memoria usada/total, disco, CPUs
+- **Red**: IP eth0, MAC, conectividad a internet
+- **Servicios** (solo gateway): estado de dnsmasq, NFS, WireGuard, leases DHCP
+
+---
+
+### reboot-nodes.yml
+
+**Propósito**: Reiniciar nodos de forma controlada (uno a la vez).
+
+**Cuándo usar**:
+- Después de actualizar kernel
+- Aplicar cambios que requieren reinicio
+- Mantenimiento programado
+
+**Ejecutar desde**: Tu Mac (via VPN)
+
+```bash
+cd homelab-ansible
+
+# Todos los nodos (pide confirmación para cada uno)
+ansible-playbook playbooks/reboot-nodes.yml
+
+# Solo un nodo específico
+ansible-playbook playbooks/reboot-nodes.yml --limit rp2-node
+
+# Solo workers
+ansible-playbook playbooks/reboot-nodes.yml --limit nodes
+```
+
+**Características**:
+- **Serial: 1** - Reinicia un nodo a la vez para mantener disponibilidad
+- **Confirmación** - Pide confirmación antes de reiniciar cada nodo
+- **Advertencia especial** - Si es el gateway, advierte que desconectará todos los nodos
+- **Verificación post-reinicio** - Muestra kernel, uptime y servicios después del reinicio
+
+**Importante**:
+- Si reinicias el gateway, perderás conectividad temporalmente
+- Espera a que un nodo esté completamente disponible antes de reiniciar el siguiente
+
+---
+
+### update-kernel.yml
+
+**Propósito**: Copiar kernel actualizado de NFS a TFTP y reiniciar nodos netboot.
+
+**Cuándo usar**:
+- Después de ejecutar `update-nodes.yml` que actualiza el kernel
+- Cuando hay nuevo kernel disponible en `/srv/nfs/{node}/boot/`
+
+**Ejecutar desde**: Tu Mac (via VPN)
+
+```bash
+cd homelab-ansible
+
+# Actualizar kernel para todos los nodos
+ansible-playbook playbooks/update-kernel.yml
+
+# Solo para un nodo específico
+ansible-playbook playbooks/update-kernel.yml --limit rp2-node
+```
+
+**Qué hace**:
+1. En el **gateway**:
+   - Busca el kernel más reciente en `/srv/nfs/{node}/boot/`
+   - Copia `vmlinuz-*` e `initrd.img-*` a `/srv/tftp/{serial}/current/`
+2. En los **nodos**:
+   - Compara kernel en ejecución vs disponible
+   - Reinicia solo si hay nuevo kernel
+   - Verifica kernel después del reinicio
+
+**Nodos configurados**:
+| Nodo | NFS Path | TFTP Serial |
+|------|----------|-------------|
+| rp2 | /srv/nfs/rp2 | 440dc91d |
+| rp3 | /srv/nfs/rp3 | 02671e08 |
+
+---
+
+### install-basic-tools-nodes.yml
+
+**Propósito**: Instalar herramientas básicas adicionales en los nodos workers.
+
+**Cuándo usar**:
+- Configuración inicial de nodos
+- Cuando necesitas herramientas de diagnóstico adicionales
+
+**Ejecutar desde**: Tu Mac (via VPN)
+
+```bash
+cd homelab-ansible
+
+# Todos los workers
+ansible-playbook playbooks/install-basic-tools-nodes.yml
+
+# Solo un nodo
+ansible-playbook playbooks/install-basic-tools-nodes.yml --limit rp2-node
+
+# Con reinicio después
+ansible-playbook playbooks/install-basic-tools-nodes.yml -e "reboot=true"
+```
+
+**Herramientas instaladas**:
+- speedtest-cli
+- htop
+- git
+
+**Variables opcionales**:
+| Variable | Default | Descripción |
+|----------|---------|-------------|
+| reboot | false | Reiniciar después de instalar |
+
+**Nota**: Este playbook usa `serial: 1` para instalar en un nodo a la vez.
+
+---
+
+### duckdns.yml
+
+**Propósito**: Configurar DuckDNS para actualizar IP pública automáticamente.
+
+**Cuándo usar**:
+- Configuración inicial de DNS dinámico
+- Cuando tu IP pública cambia frecuentemente
+- Para acceder al homelab desde internet con un dominio
+
+**Ejecutar desde**: Tu Mac (via VPN)
+
+```bash
+cd homelab-ansible
+
+# Configurar DuckDNS (requiere token)
+ansible-playbook playbooks/duckdns.yml -e "duckdns_token=TU_TOKEN_AQUI"
+```
+
+**Variables requeridas**:
+| Variable | Descripción |
+|----------|-------------|
+| duckdns_token | Token de autenticación de DuckDNS |
+
+**Variables por defecto**:
+| Variable | Valor | Descripción |
+|----------|-------|-------------|
+| duckdns_domain | aren-homelab | Subdominio en duckdns.org |
+| duckdns_dir | /opt/duckdns | Directorio de instalación |
+
+**Qué crea**:
+- Script `/opt/duckdns/duck.sh` para actualizar IP
+- Cron job que ejecuta cada 5 minutos
+- Log en `/opt/duckdns/duck.log`
+
+**Tags disponibles**:
+| Tag | Descripción |
+|-----|-------------|
+| install | Crear script y ejecutar actualización inicial |
+| cron | Configurar cron job |
+| verify | Verificar configuración |
+
+**Dominio resultante**: `aren-homelab.duckdns.org`
+
+---
+
 ## Orden de Ejecución para Nuevo Nodo
 
 1. **Instalar Ubuntu** en microSD y bootear el nuevo Raspberry Pi
