@@ -1,0 +1,124 @@
+# Playbook: node-exporter.yml
+# Propósito: Instalar node_exporter en todos los hosts para métricas
+#
+# Uso:
+#   ansible-playbook playbooks/node-exporter.yml
+#   ansible-playbook playbooks/node-exporter.yml --limit gateway
+#
+- name: instalar node_exporter
+  hosts: all 
+  become: yes
+
+  vars:
+    node_exporter_version: "1.7.0"
+    node_exporter_arch: "arm64"
+    node_exporter_port: 9100
+
+  tasks:
+    
+    # ========================================
+    # Descargar e instalar
+    # =======================================
+    - name: verificar si node_exporter esta instalado
+      stat:
+        path: /usr/local/bin/node_exporter
+      register: node_exporter_bin
+      tags: install
+
+    - name: descargar node_exporter
+      get_url:
+        url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-{{ node_exporter_arch }}.tar.gz"
+        dest: /tmp/node_exporter.tar.gz
+        mode: '0644'
+      when: not node_exporter_bin.stat.exists
+      tags: install
+
+    - name: extraer node_exporter
+      unarchive:
+        src: /tmp/node_exporter.tar.gz
+        dest: /tmp 
+        remote_src: yes
+      when: not node_exporter_bin.stat.exists
+      tags: install
+
+    - name: instalar node_exporter 
+      copy:
+        src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-{{ node_exporter_arch }}/node_exporter"
+        dest: /usr/local/bin/node_exporter
+        mode: '0755'
+        remote_src: yes
+      when: not node_exporter_bin.stat.exists
+      tags: install
+
+    - name: limpiar archivos temporales
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/node_exporter.tar.gz
+        - "/tmp/node_exporter-{{ node_exporter_version }}.linux-{{ node_exporter_arch }}"
+      tags: install
+
+    # ========================================
+    # Configurar servicio
+    # ========================================
+    - name: crear servicio systemd
+      copy:
+        dest: /etc/systemd/system/node_exporter.service
+        content: |
+          [Unit]
+          Description=Node Exporter 
+          Want=network-online.target
+          After=network-online.target
+
+          [Service]
+          Type=simple
+          ExecStart=/usr/local/bin/node_exporter
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: '0644'
+      notify: Reiniciar node_exporter
+      tags: service
+
+    - name: habilitar e iniciar servicio node_exporter
+      systemd:
+        name: node_exporter
+        enabled: yes
+        state: started
+      tags: service
+
+    # ========================================
+    # Firewall
+    # ========================================
+    - name: abrir firewall port 9100
+      ufw:
+        rule: allow
+        port: "{{ node_exporter_port }}"
+        proto: tcp
+        from_ip: 10.0.0.0/24
+        comment: "node_exporter"
+      tags: firewall
+
+    # ========================================
+    # Verificar
+    # ========================================
+    - name: verificar que el node_exporter responde
+      uri:
+        url: "http://localhost:{{ node_exporter_port }}/metrics"
+        return_content: no 
+      register: node_exporter_check
+      tags: verify
+
+    - name: mostrar node_exporter metrics
+      debug:
+        msg: "node_exporter corriendo en puerto {{ node_exporter_port }}"
+      tags: verify
+
+  handlers:
+    - name: Reiniciar node_exporter
+      systemd:
+        name: node_exporter 
+        state: restarted

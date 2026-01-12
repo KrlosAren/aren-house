@@ -20,10 +20,11 @@ Internet → Modem (192.168.100.x)
               │
          Switch TP-Link SG105PE (10.0.0.5)
               │
-         ├── rp2 (10.0.0.2) - Netboot
-         └── rp3 (10.0.0.3) - Netboot
+         ├── rp2 (10.0.0.2) - Netboot, Docker, Prometheus/Grafana
+         └── rp3 (10.0.0.3) - Netboot, Docker
 
-WireGuard VPN: 10.0.1.0/24
+Tailscale VPN: 100.x.x.x (mesh, bypasses CGNAT)
+WireGuard VPN: 10.0.1.0/24 (legacy, requires port forwarding)
 ```
 
 ## Devices
@@ -41,14 +42,24 @@ WireGuard VPN: 10.0.1.0/24
 |---------|-------|-----------|---------|
 | WAN | 192.168.100.x | enx00e04c683da2 | DHCP from modem |
 | LAN Homelab | 10.0.0.0/24 | eth0 | Internal segmented network |
-| VPN | 10.0.1.0/24 | wg0 | Remote access via WireGuard |
+| Tailscale | 100.x.x.x | tailscale0 | Remote access (recommended, bypasses CGNAT) |
+| WireGuard | 10.0.1.0/24 | wg0 | Legacy VPN (requires port forwarding) |
 
 ## Services on rp1-master
 
 - **dnsmasq**: DHCP (fixed IPs by MAC), DNS (.homelab.local), TFTP (boot files)
 - **NFS**: Root filesystems at `/srv/nfs/{rp2,rp3}/`
-- **WireGuard**: VPN for remote access
+- **Tailscale**: VPN mesh for remote access (subnet router for 10.0.0.0/24)
+- **WireGuard**: Legacy VPN (requires port forwarding, not usable with CGNAT)
 - **NAT**: iptables MASQUERADE for internet access
+- **UFW**: Firewall
+
+## Services on Worker Nodes
+
+- **Docker**: Container runtime (storage local en microSD/SSD, overlay2)
+- **node_exporter**: System metrics on port 9100
+- **Prometheus** (rp2 only): Metrics collection on port 9090
+- **Grafana** (rp2 only): Dashboards on port 3000
 
 ## File Structure on Gateway
 
@@ -77,7 +88,7 @@ All commands run from `homelab-ansible/` directory.
 | rp2-node | 10.0.0.2 | nodes |
 | rp3-node | 10.0.0.3 | nodes |
 
-Connection requires VPN (WireGuard) active to reach 10.0.0.x network.
+Connection requires VPN (Tailscale or WireGuard) active to reach 10.0.0.x network.
 
 ### Structure
 
@@ -96,7 +107,10 @@ homelab-ansible/
 │   ├── node-info.yml        # Get system info from all nodes
 │   ├── reboot-nodes.yml     # Controlled reboot (one at a time)
 │   ├── update-nodes.yml     # Update packages on nodes
-│   └── update-kernel.yml    # Update kernel on nodes
+│   ├── update-kernel.yml    # Update kernel on nodes
+│   ├── docker.yml           # Install Docker on nodes
+│   ├── local-storage.yml    # Configure local storage for Docker
+│   └── node-exporter.yml    # Install node_exporter for monitoring
 └── roles/
     ├── wireguard/           # VPN with IP forwarding
     ├── dnsmasq/             # DHCP, DNS, TFTP (with host-record for rp1)
@@ -153,7 +167,12 @@ sudo tail -f /var/log/dnsmasq.log
 # View NFS exports
 sudo exportfs -v
 
-# VPN control (from Mac)
+# Tailscale VPN (recommended)
+tailscale up    # Connect
+tailscale down  # Disconnect
+tailscale status
+
+# WireGuard VPN (legacy, requires port forwarding)
 sudo wg-quick up ~/homelab.conf
 sudo wg-quick down ~/homelab.conf
 ```
@@ -185,10 +204,19 @@ docs/
 │   ├── 002-network-segmentation.md
 │   ├── 003-dnsmasq-dhcp-dns-tftp.md
 │   ├── 004-ip-forwarding-nat.md
-│   └── 005-ufw-firewall.md
+│   ├── 005-ufw-firewall.md
+│   ├── 006-netboot-vs-local.md
+│   ├── 007-docker-storage-overlay.md
+│   ├── 008-tailscale-cgnat.md
+│   └── 009-cgnat-workaround.md
 ├── concepts/            # Theory: DHCP, DNS, TFTP, PXE, NAT, VPN, iptables, systemd, NFS, EEPROM, UFW
 ├── guides/              # How-to: playbook-usage, firewall, service-management, network-troubleshooting
+│   └── tailscale-setup.md  # Tailscale VPN setup guide
 ├── runbooks/            # Procedures: disaster-recovery, maintenance
+├── architecture.md      # System architecture overview
+├── local-storage.md     # Local storage config for Docker
+├── observability.md     # Prometheus/Grafana stack
+├── troubleshooting.md   # Common issues and solutions
 ├── ansible-guide.md     # Complete Ansible guide
 ├── dns-setup.md         # DNS configuration guide
 ├── netboot-node-setup.md
@@ -209,9 +237,12 @@ docs/
 ## Pending
 
 - [x] Firewall (ufw) with rules between networks - `playbooks/firewall.yml`
-- [ ] Docker on nodes
+- [x] Docker on nodes - `playbooks/docker.yml`
+- [x] Local storage for Docker (overlay2) - `playbooks/local-storage.yml`
+- [x] Monitoring with Prometheus/Grafana - `stacks/observability/`
+- [x] Tailscale VPN (CGNAT bypass) - See `docs/guides/tailscale-setup.md`
 - [ ] k3s cluster
-- [ ] Monitoring with Prometheus/Grafana
+- [ ] Alerting (Alertmanager)
 
 ## DNS
 
