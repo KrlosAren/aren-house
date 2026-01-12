@@ -100,3 +100,8 @@ Para más detalles, ver la documentación de cada componente.
 - [002 - Segmentación de red con Raspberry Pi](docs/decisions/002-network-segmentation.md)
 - [003 - Configuracion de DNS/DHCP/TFTP (dnsmasq)](docs/decisions/003-dnsmasq-dhcp-dns-tftp.md)
 - [004 - IP Forwarding y NAT](docs/decisions/004-ip-forwarding-nat.md)
+- [005 - UFW - Firewall](docs/decisions/005-ufw-firewall.md)
+- [006 - Netboot vs Local](docs/decisions/006-netboot-vs-local.md)
+- [007 - Docker storage Overlay](docs/decisions/007-docker-storage-overlay.md)
+- [008 - Tailscale CGNAT](docs/decisions/008-tailscale-cgnat.md)
+- [009 - CGNAT Workaround](docs/decisions/009-cgnat-workaround.md)
