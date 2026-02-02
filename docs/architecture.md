@@ -105,6 +105,149 @@
 
 ---
 
+## Kubernetes (k3s)
+
+### Arquitectura del Cluster
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                 rp1-master (Control Plane)                       │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                     k3s server                            │   │
+│  │                                                           │   │
+│  │  ┌───────────┐ ┌───────────┐ ┌────────────────────────┐  │   │
+│  │  │API Server │ │ Scheduler │ │ Controller Manager     │  │   │
+│  │  └───────────┘ └───────────┘ └────────────────────────┘  │   │
+│  │                                                           │   │
+│  │  ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌──────────┐  │   │
+│  │  │  SQLite   │ │  Flannel  │ │  CoreDNS  │ │ Traefik  │  │   │
+│  │  │ (estado)  │ │   (CNI)   │ │   (DNS)   │ │(Ingress) │  │   │
+│  │  └───────────┘ └───────────┘ └───────────┘ └──────────┘  │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Config crítica: /etc/rancher/k3s/config.yaml                   │
+│                  flannel-iface: eth0                             │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+               ┌──────────────┴──────────────┐
+               ▼                             ▼
+┌───────────────────────────┐ ┌───────────────────────────┐
+│   rp2-node (k3s agent)    │ │   rp3-node (k3s agent)    │
+│                           │ │                           │
+│  ┌─────────────────────┐  │ │  ┌─────────────────────┐  │
+│  │ kubelet             │  │ │  │ kubelet             │  │
+│  │ kube-proxy          │  │ │  │ kube-proxy          │  │
+│  │ containerd          │  │ │  │ containerd          │  │
+│  │ MetalLB speaker     │  │ │  │ MetalLB speaker     │  │
+│  └─────────────────────┘  │ │  └─────────────────────┘  │
+│                           │ │                           │
+│  Labels:                  │ │  Labels:                  │
+│  - storage=sd             │ │  - storage=ssd            │
+│  - storage-size=32gb      │ │  - storage-size=240gb     │
+│  (solo workloads          │ │  (workloads con I/O)      │
+│   stateless)              │ │                           │
+└───────────────────────────┘ └───────────────────────────┘
+```
+
+### Redes de Kubernetes
+
+| Red | Rango | Propósito |
+|-----|-------|-----------|
+| Pods | 10.42.0.0/16 | Red interna de pods |
+| Services | 10.43.0.0/16 | ClusterIPs |
+| MetalLB | 10.0.0.50-60 | LoadBalancer IPs |
+
+### Componentes Instalados
+
+| Componente | Namespace | Función |
+|------------|-----------|---------|
+| CoreDNS | kube-system | DNS interno del cluster |
+| Traefik | kube-system | Ingress Controller |
+| MetalLB | metallb-system | LoadBalancer para bare-metal |
+| local-path-provisioner | kube-system | Storage dinámico |
+
+### DNS y Acceso a Servicios
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        dnsmasq                               │
+│                                                              │
+│  *.homelab.local      → 10.0.0.1   (Traefik Docker)         │
+│  *.k8s.homelab.local  → 10.0.0.50  (Traefik k3s/MetalLB)    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Flujo de Tráfico k8s
+```
+Cliente (Mac/LAN)
+       │
+       │ http://app.k8s.homelab.local
+       ▼
+┌─────────────────────┐
+│  dnsmasq            │
+│  Resuelve a         │
+│  10.0.0.50          │
+└──────────┬──────────┘
+           ▼
+┌─────────────────────┐
+│  MetalLB            │
+│  Anuncia IP via ARP │
+│  Dirige al nodo     │
+└──────────┬──────────┘
+           ▼
+┌─────────────────────┐
+│  Traefik (k3s)      │
+│  LoadBalancer       │
+│  :80/:443           │
+│                     │
+│  Rutea por Host     │
+│  header al Ingress  │
+└──────────┬──────────┘
+           ▼
+┌─────────────────────┐
+│  Service            │
+│  (ClusterIP)        │
+└──────────┬──────────┘
+           ▼
+┌─────────────────────┐
+│  Pod                │
+└─────────────────────┘
+```
+
+### Flannel (CNI)
+
+Red overlay que permite comunicación entre pods en diferentes nodos:
+```
+Pod en rp3 (10.42.3.x)
+       │
+       ▼
+┌─────────────────────┐
+│  flannel.1 (VXLAN)  │
+│  Encapsula paquete  │
+└──────────┬──────────┘
+           │ UDP 8472
+           ▼
+┌─────────────────────┐
+│  eth0 (10.0.0.3)    │
+│  Red física         │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│  eth0 (10.0.0.1)    │
+│  Red física         │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│  flannel.1 (VXLAN)  │
+│  Desencapsula       │
+└──────────┬──────────┘
+           ▼
+Pod en rp1 (10.42.0.x)
+```
+
+---
+
 ## Flujos de Red
 
 ### Boot de un nodo
@@ -183,6 +326,7 @@ Dashboards
 | Segmentación de red | Aislamiento LAN interna del modem | [ADR-002](decisions/002-network-segmentation.md) |
 | dnsmasq como DHCP/DNS/TFTP | Solución integrada y ligera | [ADR-003](decisions/003-dnsmasq-dhcp-dns-tftp.md) |
 | UFW como firewall | Simplicidad sobre iptables directo | [ADR-005](decisions/005-ufw-firewall.md) |
+| MetalLB para LoadBalancer | Asigna IPs reales en bare-metal | [ADR-011](decisions/011-metallb.md) |
 
 ---
 
@@ -195,12 +339,12 @@ Dashboards
 3. Configurar DHCP en dnsmasq
 4. El nodo bootea automáticamente por red
 
-### Migrar a Kubernetes (k3s)
-```
-rp1-master: k3s server (control plane)
-rp2-node:   k3s agent (worker)
-rp3-node:   k3s agent (worker)
-```
+### Kubernetes - Próximos pasos
+
+- [ ] **Longhorn**: Storage distribuido con replicación
+- [ ] **Cert-Manager**: Certificados TLS automáticos
+- [ ] **Observability en k8s**: Migrar Prometheus/Grafana/Loki al cluster
+- [ ] **Alertmanager**: Alertas
 
 ### Storage distribuido
 
