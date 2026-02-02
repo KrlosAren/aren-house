@@ -6,7 +6,7 @@
 #   ansible-playbook playbooks/docker.yml --limit rp2-node
 #
 - name: instalar docker
-  hosts: nodes
+  hosts: all
   become: yes
 
   tasks:

@@ -30,6 +30,14 @@
       tags: install
 
     # ======================================
+    # RESETEAR UFW (evita bloqueos si ya estaba habilitado)
+    # ======================================
+    - name: resetear ufw para evitar bloqueos
+      command: ufw --force reset
+      changed_when: true
+      tags: reset
+
+    # ======================================
     # PRIMERO: reglas de allow
     # ======================================
 
@@ -206,6 +214,14 @@
         name: ufw
         state: present
       tags: install
+
+    # ======================================
+    # RESETEAR UFW (evita bloqueos si ya estaba habilitado)
+    # ======================================
+    - name: resetear ufw para evitar bloqueos
+      command: ufw --force reset
+      changed_when: true
+      tags: reset
 
     # ======================================
     # PRIMERO: reglas de allow

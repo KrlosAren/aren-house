@@ -1,0 +1,28 @@
+# --- Nodos de Node Exporter ---
+
+# Target para rp1-master (Gateway)
+# La IP 10.0.0.1 es la del gateway.
+- targets: ["10.0.0.1:9100"]
+  labels:
+    instance: "rp1-master"
+    job: "node_exporter" # Nombre del job para este grupo de targets
+    role: "gateway" # Etiqueta personalizada para el rol del nodo
+    location: "homelab" # Otra etiqueta personalizada
+
+# Target para rp2-node (donde corre Prometheus y su propio Node Exporter)
+# 'node_exporter:9100' funciona porque el servicio de node_exporter
+# corre en el mismo stack Docker Compose que Prometheus.
+- targets: ["10.0.0.2:9100"]
+  labels:
+    instance: "rp2-node"
+    job: "node_exporter"
+    role: "worker"
+    location: "homelab"
+# Target para rp3-node
+# La IP 10.0.0.3 es la del worker node.
+- targets: ["10.0.0.3:9100"]
+  labels:
+    instance: "rp3-node"
+    job: "node_exporter"
+    role: "worker"
+    location: "homelab"

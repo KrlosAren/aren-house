@@ -1,0 +1,47 @@
+
+services:
+  registry:
+    image: registry:2
+    container_name: registry
+    restart: unless-stopped
+    volumes:
+      - registry_data:/var/lib/registry
+    environment:
+      - REGISTRY_STORAGE_DELETE_ENABLED="true"
+      - REGISTRY_HTTP_SECRET=ATMJVDRJhnRIjxukMnyd//ScJ5qF8GmIiCfe3P2CUow=
+      - REGISTRY_HTTP_HEADERS_Access-Control-Allow-Origin=["http://registry-ui.homelab.local"]
+      - REGISTRY_HTTP_HEADERS_Access-Control-Allow-Methods=["HEAD","GET","OPTIONS","DELETE"]
+      - REGISTRY_HTTP_HEADERS_Access-Control-Allow-Headers=["Authorization","Accept","Cache-Control"]
+      - REGISTRY_HTTP_HEADERS_Access-Control-Expose-Headers=["Docker-Content-Digest"]
+    networks:
+      - router
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.registry.rule=Host(`registry.homelab.local`)"
+      - "traefik.http.routers.registry.entrypoints=web"
+      - "traefik.http.services.registry.loadbalancer.server.port=5000"
+
+  registry-ui:
+    image: joxit/docker-registry-ui:latest
+    container_name: registry-ui
+    restart: unless-stopped
+    environment:
+      - SINGLE_REGISTRY=true
+      - REGISTRY_TITLE="Homelab Registry"
+      - DELETE_IMAGES=true
+      - REGISTRY_URL=http://registry.homelab.local
+    networks:
+      - router
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.registry-ui.rule=Host(`registry-ui.homelab.local`)"
+      - "traefik.http.routers.registry-ui.entrypoints=web"
+
+
+
+volumes:
+  registry_data: {}
+
+networks:
+  router:
+    external: true

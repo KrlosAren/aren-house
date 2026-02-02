@@ -1,0 +1,119 @@
+---
+# playbook: metallb.yml
+# description: Instala y configura MetalLB en el cluster k3s
+#
+# MetalLB provee LoadBalancer para clusters bare-metal/homelab
+# Asigna IPs reales a Services tipo LoadBalancer
+#
+# Uso: ansible-playbook playbooks/metallb.yml
+#
+# Requisitos:
+#   - Cluster k3s funcionando
+#   - kubectl configurado en el gateway
+#
+# Notas:
+#   - El pool de IPs (10.0.0.50-60) está fuera del rango DHCP (10.0.0.100-200)
+#   - Usa modo L2 (ARP) para anunciar IPs en la red loca
+- name: instalar y configurar MetalLB
+  hosts: gateway
+  become: no 
+  vars:
+    metallb_version: "v0.14.9"
+    metallb_pool_start: "10.0.0.50"
+    metallb_pool_end: "10.0.0.60"
+
+  tasks:
+    - name: "PASO 1: Verificar que el cluster está disponible"
+      command: kubectl get nodes
+      register: cluster_check
+      changed_when: false
+      failed_when: cluster_check.rc != 0
+
+    - name: "PASO 2: Verificar si MetalLB ya está instalado"
+      command: kubectl get namespace metallb-system
+      register: metallb_ns_check
+      failed_when: false
+      changed_when: false
+
+    - name: "PASO 3: instalar MetalLB"
+      command: >
+        kubectl apply -f 
+        https://raw.githubusercontent.com/metallb/metallb/{{ metallb_version }}/config/manifests/metallb-native.yaml
+      when: metallb_ns_check.rc != 0 
+      register: metallb_install
+
+    - name: "PASO 4: esperar que los pods de metallb esten listos"
+      command: kubectl wait --namespace metallb-system --for=condition=ready pod --selector=app=metallb --timeout=120s 
+      when: metallb_install.changed 
+      changed_when: false 
+
+    - name: "PASO 5: verificar si IPAddressPool ya existe"
+      command: kubectl get ipaddresspool homelab-pool -n metallb-system
+      register: pool_check
+      failed_when: false
+      changed_when: false
+
+    - name: "PASO 6: crear configuracion de MetalLB"
+      command: |
+        kubectl apply -f - 
+      args:
+        stdin: |
+          apiVersion: metallb.io/v1beta1
+          kind: IPAddressPool
+          metadata:
+            name: homelab-pool
+            namespace: metallb-system
+          spec:
+            addresses:
+              - {{ metallb_pool_start }}-{{ metallb_pool_end }}
+          ---
+          apiVersion: metallb.io/v1beta1
+          kind: L2Advertisement
+          metadata:
+            name: homelab-l2
+            namespace: metallb-system
+          spec:
+            ipAddressPools:
+              - homelab-pool
+      when: pool_check.rc != 0 
+
+    - name: "PASO 7: verificar IP assignada a Traefik"
+      command: kubectl get svc -n kube-system traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+      register: traefik_ip
+      changed_when: false
+      retries: 5 
+      delay: 5 
+      until: traefik_ip.stdout != ""
+
+    - name: "PASO 8: verificar si dnsmasq tiene configuracion de k8s"
+      command: grep -q "k8s.homelab.local" /etc/dnsmasq.conf
+      register: dnsmasq_k8s_check
+      failed_when: false
+      changed_when: false
+      become: yes
+
+    - name: "PASO 9: agregar entrada de DNS para k8s en dnsmasq"
+      lineinfile:
+        path: /etc/dnsmasq.conf
+        line: "address=/.k8s.homelab.local/{{ traefik_ip.stdout }}"
+        insertafter: "address=/.homelab.local/"
+        state: present
+      become: yes
+      when: dnsmasq_k8s_check.rc != 0 
+      register: dnsmasq_update
+
+    - name: "PASO 10: reiniciar dnsmasq"
+      systemd:
+        name: dnsmasq
+        state: restarted
+      become: yes
+      when: dnsmasq_update.changed
+
+    - name: "Estado de MetalLB"
+      vars:
+        post_lines:
+          - "Pools de IPs : {{ metallb_pool_start }} - {{ metallb_pool_end }}"
+          - "traefik LB IP: {{ traefik_ip.stdout }}"
+          - "DNS configurado *.k8s.homelab.local -> {{ traefik_ip.stdout }}"
+      debug:
+        msg: "{{ post_lines }}"

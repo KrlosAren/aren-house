@@ -1,0 +1,328 @@
+---
+# playbook: k3s.yml
+# description: Instala k3s en el cluster.
+#
+# - El server se instala en el gateway (rp1-master)
+# - Los agentes se instalan en los nodos (rp2-node, rp3-node)
+#
+# Uso: ansible-playbook playbooks/k3s.yml
+#
+# Requisitos:
+#   - Tailscale instalado y configurado
+#   - Storage local montado (SSD en gateway, microSD/SSD en nodos)
+#   - Firewall configurado con reglas para Tailscale
+#
+# Notas:
+#   - Los nodos bootean por NFS, por lo que cmdline.txt está en /srv/tftp/
+#   - El storage de k3s usa disco local para evitar problemas con overlay en NFS
+#   - Las reglas de iptables para Tailscale se persisten con netfilter-persistent
+
+- name: Instalar y configurar k3s server en el gateway
+  hosts: gateway
+  become: yes
+  vars:
+    k3s_server_install_path: /usr/local/bin/k3s
+    k3s_version: "" # Dejar vacío para latest, o especificar ej: "v1.28.5+k3s1"
+    k3s_local_storage: /var/lib/rancher-local
+
+  tasks:
+    - name: "PASO 1: Verificar si cgroups ya están configurados"
+      shell: grep -q "cgroup_memory=1" /boot/firmware/cmdline.txt
+      register: cgroup_check
+      failed_when: false
+      changed_when: false
+
+    - name: "PASO 2: Habilitar cgroups de memoria en el kernel"
+      lineinfile:
+        path: /boot/firmware/cmdline.txt
+        backrefs: yes
+        regexp: "^(.*)$"
+        line: '\1 cgroup_memory=1 cgroup_enable=memory'
+      when: cgroup_check.rc != 0
+      notify: Reboot Gateway
+      register: cgroup_config
+
+    - name: "Forzar reinicio si cmdline.txt fue modificado"
+      meta: flush_handlers
+      when: cgroup_config.changed | default(false)
+
+    - name: "PASO 3: Verificar si k3s ya está instalado"
+      stat:
+        path: "{{ k3s_server_install_path }}"
+      register: k3s_installed
+
+    - name: "PASO 4: Crear directorio para storage de k3s en disco local"
+      file:
+        path: "{{ k3s_local_storage }}"
+        state: directory
+        mode: "0755"
+      when: not k3s_installed.stat.exists
+
+    - name: "PASO 5: Verificar si /var/lib/rancher existe como directorio"
+      stat:
+        path: /var/lib/rancher
+      register: rancher_dir
+
+    - name: "PASO 6: Remover /var/lib/rancher si existe como directorio (no symlink)"
+      file:
+        path: /var/lib/rancher
+        state: absent
+      when:
+        - not k3s_installed.stat.exists
+        - rancher_dir.stat.exists
+        - rancher_dir.stat.isdir
+        - not rancher_dir.stat.islnk | default(false)
+
+    - name: "PASO 7: Crear symlink de /var/lib/rancher a storage local"
+      file:
+        src: "{{ k3s_local_storage }}"
+        dest: /var/lib/rancher
+        state: link
+        force: yes
+      when: not k3s_installed.stat.exists
+    
+    - name: "PASO 8: Crear directorio de config de k3s"
+      file:
+        path: /etc/rancher/k3s
+        state: directory
+        mode: "0755"
+      when: not k3s_installed.stat.exists
+
+    - name: "PASO 8.1: crear configuracionn de k3s server"
+      copy:
+        content: |
+          flannel-iface: eth0
+        mode: "0644"
+        dest: /etc/rancher/k3s/config.yaml
+      when: not k3s_installed.stat.exists
+
+    - name: "PASO 9: Instalar k3s server"
+      shell: |
+        curl -sfL https://get.k3s.io | sh -s - server \
+          --write-kubeconfig-mode 644 \
+          --disable servicelb
+      args:
+        creates: "{{ k3s_server_install_path }}"
+      environment:
+        INSTALL_K3S_VERSION: "{{ k3s_version | default(omit, true) }}"
+      register: k3s_install
+
+    - name: "PASO 10: Esperar a que k3s server esté listo"
+      command: kubectl get nodes
+      register: kubectl_result
+      until: kubectl_result.rc == 0
+      retries: 30
+      delay: 10
+      changed_when: false
+      when: k3s_install.changed
+
+    - name: "PASO 11: Asegurar reglas de FORWARD para Tailscale (entrada)"
+      ansible.builtin.iptables:
+        chain: FORWARD
+        in_interface: tailscale0
+        jump: ACCEPT
+        comment: "k3s - Allow incoming traffic from tailscale"
+
+    - name: "PASO 12: Asegurar reglas de FORWARD para Tailscale (salida)"
+      ansible.builtin.iptables:
+        chain: FORWARD
+        out_interface: tailscale0
+        jump: ACCEPT
+        comment: "k3s - Allow outgoing traffic to tailscale"
+
+    - name: "PASO 13: Verificar si netfilter-persistent está instalado"
+      command: which netfilter-persistent
+      register: netfilter_check
+      failed_when: false
+      changed_when: false
+
+    - name: "PASO 14: Instalar iptables-persistent si no existe"
+      apt:
+        name: iptables-persistent
+        state: present
+      when: netfilter_check.rc != 0
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: "PASO 15: Guardar reglas de iptables"
+      shell: netfilter-persistent save
+      changed_when: false
+
+  handlers:
+    - name: Reboot Gateway
+      reboot:
+        msg: "Rebooting gateway to apply kernel cgroup settings."
+        connect_timeout: 5
+        reboot_timeout: 300
+        pre_reboot_delay: 0
+        post_reboot_delay: 30
+        test_command: uptime
+
+- name: Instalar y configurar k3s agents en los nodos
+  hosts: nodes
+  become: yes
+  serial: 1 # Instalar uno a la vez para evitar problemas de concurrencia
+  vars:
+    # Serial numbers de las Raspberry Pi (últimos 8 caracteres)
+    # Obtener con: cat /proc/cpuinfo | grep Serial
+    node_serials:
+      rp2-node: "440dc91d"
+      rp3-node: "02671e08"
+    k3s_server_ip: "{{ hostvars['rp1-master'].ansible_host }}"
+    k3s_local_storage: /var/lib/rancher-local
+
+  tasks:
+    - name: "PASO 1: Obtener el token de conexión del k3s server"
+      slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: k3s_token_raw
+      delegate_to: rp1-master
+
+    - name: "Set k3s_token fact"
+      set_fact:
+        k3s_token: "{{ k3s_token_raw.content | b64decode | trim }}"
+
+    - name: "PASO 2: Verificar si cgroups ya están configurados (netboot)"
+      shell: grep -q "cgroup_memory=1" /srv/tftp/{{ node_serials[inventory_hostname] }}/current/cmdline.txt
+      register: cgroup_check_node
+      delegate_to: rp1-master
+      failed_when: false
+      changed_when: false
+
+    - name: "PASO 3: Habilitar cgroups de memoria para netboot"
+      lineinfile:
+        path: "/srv/tftp/{{ node_serials[inventory_hostname] }}/current/cmdline.txt"
+        backrefs: yes
+        regexp: "^(.*)$"
+        line: '\1 cgroup_memory=1 cgroup_enable=memory'
+      delegate_to: rp1-master
+      when: cgroup_check_node.rc != 0
+      notify: Reboot Node
+      register: cgroup_config_node
+
+    - name: "Forzar reinicio si cmdline.txt fue modificado"
+      meta: flush_handlers
+      when: cgroup_config_node.changed | default(false)
+
+    - name: "PASO 4: Verificar si k3s agent ya está instalado"
+      stat:
+        path: /usr/local/bin/k3s
+      register: k3s_agent_installed
+
+    - name: "PASO 5: Crear directorio para storage de k3s en disco local"
+      file:
+        path: "{{ k3s_local_storage }}"
+        state: directory
+        mode: "0755"
+      when: not k3s_agent_installed.stat.exists
+
+    - name: "PASO 6: Verificar si /var/lib/rancher existe como directorio"
+      stat:
+        path: /var/lib/rancher
+      register: rancher_dir_node
+
+    - name: "PASO 7: Remover /var/lib/rancher si existe como directorio (no symlink)"
+      file:
+        path: /var/lib/rancher
+        state: absent
+      when:
+        - not k3s_agent_installed.stat.exists
+        - rancher_dir_node.stat.exists
+        - rancher_dir_node.stat.isdir
+        - not rancher_dir_node.stat.islnk | default(false)
+
+    - name: "PASO 8: Crear symlink de /var/lib/rancher a storage local"
+      file:
+        src: "{{ k3s_local_storage }}"
+        dest: /var/lib/rancher
+        state: link
+        force: yes
+      when: not k3s_agent_installed.stat.exists
+
+    - name: "PASO 9: Instalar k3s agent"
+      shell: curl -sfL https://get.k3s.io | sh -s - agent
+      args:
+        creates: /usr/local/bin/k3s
+      environment:
+        K3S_URL: "https://{{ k3s_server_ip }}:6443"
+        K3S_TOKEN: "{{ k3s_token }}"
+
+    - name: "PASO 10: Esperar a que el nodo se una al cluster"
+      command: kubectl get node {{ inventory_hostname }}
+      delegate_to: rp1-master
+      register: node_joined
+      until: node_joined.rc == 0
+      retries: 30
+      delay: 10
+      changed_when: false
+
+  handlers:
+    - name: Reboot Node
+      reboot:
+        msg: "Rebooting node to apply kernel cgroup settings."
+        connect_timeout: 5
+        reboot_timeout: 300
+        pre_reboot_delay: 0
+        post_reboot_delay: 30
+        test_command: uptime
+
+- name: Verificar estado del cluster k3s
+  hosts: gateway
+  become: yes
+  tasks:
+    - name: "Obtener lista de nodos del cluster"
+      command: kubectl get nodes -o wide
+      register: cluster_nodes
+      changed_when: false
+
+    - name: "Estado del cluster k3s"
+      debug:
+        msg: |
+          ═══════════════════════════════════════════════════════════
+          CLUSTER K3S - ESTADO ACTUAL
+          ═══════════════════════════════════════════════════════════
+          {{ cluster_nodes.stdout }}
+          ═══════════════════════════════════════════════════════════
+
+    - name: "Obtener pods del sistema"
+      command: kubectl get pods -n kube-system
+      register: system_pods
+      changed_when: false
+
+    - name: "Pods del sistema k3s"
+      debug:
+        msg: |
+          ═══════════════════════════════════════════════════════════
+          PODS DEL SISTEMA (kube-system)
+          ═══════════════════════════════════════════════════════════
+          {{ system_pods.stdout }}
+          ═══════════════════════════════════════════════════════════
+
+- name: Configurar kubectl en el gateway para acceso local
+  hosts: gateway
+  become: no
+  tasks:
+    - name: "Crear directorio .kube para el usuario"
+      file:
+        path: "{{ ansible_env.HOME }}/.kube"
+        state: directory
+        mode: "0755"
+
+    - name: "Copiar kubeconfig al usuario"
+      become: yes
+      copy:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "{{ ansible_env.HOME }}/.kube/config"
+        remote_src: yes
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0600"
+
+    - name: "Verificar acceso con kubectl como usuario normal"
+      command: kubectl get nodes
+      register: user_kubectl
+      changed_when: false
+
+    - name: "Confirmación"
+      debug:
+        msg: "✅ kubectl configurado para el usuario {{ ansible_user }}. Puedes usar 'kubectl' sin sudo."

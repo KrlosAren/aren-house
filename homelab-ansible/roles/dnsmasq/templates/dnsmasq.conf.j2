@@ -18,6 +18,8 @@ server={{ server }}
 # Dominio local
 domain={{ dnsmasq_domain }}
 local=/{{ dnsmasq_domain }}/
+address=/.{{ dnsmasq_domain }}/{{ dnsmasq_network.gateway }}
+address=/.k8s.{{ dnsmasq_domain }}/{{ dnsmasq_network.k3s_gateway }}
 
 # ----- DHCP -----
 dhcp-range={{ dnsmasq_network.range_start }},{{ dnsmasq_network.range_end }},{{ dnsmasq_network.lease_time }}

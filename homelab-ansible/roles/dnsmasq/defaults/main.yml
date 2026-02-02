@@ -13,6 +13,7 @@ dnsmasq_domain: homelab.local
 dnsmasq_network:
   dns: rp1
   gateway: 10.0.0.1
+  k3s_gateway: 10.0.0.50
   netmask: 255.255.255.0
   range_start: 10.0.0.100
   range_end: 10.0.0.200

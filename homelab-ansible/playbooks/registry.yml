@@ -1,0 +1,100 @@
+---
+# playbook: registry.yml
+# description: Configura Docker para usar un registry local privado.
+#
+# Uso: ansible-playbook playbooks/registry.yml
+- name: Configura Docker para usar un registry local privado
+  hosts: all
+  become: yes
+
+  vars:
+    registry_host: "registry.homelab.local"
+    registry_ip: "10.0.0.1"
+
+  tasks:
+    - name: "verificar si docker esta instalado"
+      command: which docker
+      register: docker_check
+      failed_when: false
+      changed_when: false
+      tags: docker
+
+    - name: "crear/actualizar daemon.json de docker"
+      copy:
+        content: |
+          {
+            "storage-driver": "overlay2",
+            "insecure-registries": ["{{ registry_host }}", "{{ registry_ip }}:5000"]
+          }
+        dest: /etc/docker/daemon.json
+        mode: "0644"
+      when: docker_check.rc == 0
+      notify:
+        - Restart Docker
+      tags: docker
+
+    - name: "verificar configuracion"
+      command: docker info
+      register: docker_info
+      changed_when: false
+      when: docker_check.rc == 0
+      tags: docker
+
+    - name: "mostrar configuracion de docker"
+      debug:
+        msg: "Registry configurado: {{ registry_host }} y {{ registry_ip }}:5000"
+      when: docker_check.rc == 0
+      tags: docker
+
+  handlers:
+    - name: Restart Docker
+      service:
+        name: docker
+        state: restarted
+
+- name: Configurar containerd de k3s para usar registry local privado
+  hosts: all
+  become: yes
+
+  vars:
+    registry_host: "registry.homelab.local"
+
+  tasks:
+    - name: "verificar si k3s esta instalado"
+      command: which k3s
+      register: k3s_check
+      failed_when: false
+      changed_when: false
+      tags: k3s
+
+    - name: "crear directorio de config de k3s"
+      file:
+        path: /etc/rancher/k3s
+        state: directory
+        mode: "0755"
+      when: k3s_check.rc == 0
+      tags: k3s
+
+    - name: "crear registries.yaml para k3s"
+      copy:
+        content: |
+          mirrors:
+            "{{ registry_host }}":
+              endpoint:
+                - "http://{{ registry_host }}"
+            "docker.io":
+              endpoint:
+                - "https://registry-1.docker.io"
+        dest: /etc/rancher/k3s/registries.yaml
+        mode: "0644"
+      when: k3s_check.rc == 0
+      notify:
+        - Restart k3s
+      tags: k3s
+
+  handlers:
+    - name: Restart k3s
+      systemd:
+        name: "{{ 'k3s' if inventory_hostname == 'rp1-master' else 'k3s-agent' }}"
+        state: restarted
+      failed_when: false
