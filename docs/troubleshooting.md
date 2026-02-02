@@ -296,3 +296,188 @@ journalctl -u <service> -f
 # Reiniciar servicio
 sudo systemctl restart <service>
 ```
+
+---
+
+## Kubernetes (k3s)
+
+### Pods no se comunican entre nodos
+
+**Síntoma:** DNS no funciona, `wget: bad address 'nginx'` desde un pod
+
+**Causa:** Flannel eligió la interfaz de red incorrecta (común cuando el nodo tiene múltiples interfaces)
+
+**Diagnóstico:**
+```bash
+# Ver qué IP anuncia cada nodo
+kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.flannel\.alpha\.coreos\.com/public-ip}{"\n"}{end}'
+
+# Si rp1-master muestra 192.168.100.x en vez de 10.0.0.1, ese es el problema
+
+# Verificar FDB de Flannel
+ssh rp3-node "bridge fdb show dev flannel.1"
+# Si muestra IP incorrecta para rp1, confirma el problema
+```
+
+**Solución:**
+```bash
+# En rp1-master, crear configuración
+sudo tee /etc/rancher/k3s/config.yaml << EOF
+flannel-iface: eth0
+EOF
+
+# Reiniciar k3s server
+sudo systemctl restart k3s
+
+# Reiniciar agents en workers
+ssh rp2-node "sudo systemctl restart k3s-agent"
+ssh rp3-node "sudo systemctl restart k3s-agent"
+
+# Verificar que la IP cambió
+kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.flannel\.alpha\.coreos\.com/public-ip}{"\n"}{end}'
+```
+
+### Service LoadBalancer en "pending"
+
+**Síntoma:** `kubectl get svc` muestra `EXTERNAL-IP: <pending>` indefinidamente
+
+**Causa:** No hay LoadBalancer controller (MetalLB) instalado
+
+**Solución:**
+```bash
+# Instalar MetalLB
+ansible-playbook playbooks/metallb.yml
+
+# O manualmente
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.9/config/manifests/metallb-native.yaml
+
+# Verificar
+kubectl get pods -n metallb-system
+kubectl get svc -n kube-system traefik
+# Debería mostrar EXTERNAL-IP: 10.0.0.50
+```
+
+### CoreDNS no responde
+
+**Síntoma:** Pods no pueden resolver nombres internos
+
+**Diagnóstico:**
+```bash
+# Verificar que CoreDNS está corriendo
+kubectl get pods -n kube-system -l k8s-app=kube-dns -o wide
+
+# Probar conectividad al pod de CoreDNS
+kubectl run test --rm -it --image=alpine -- ping -c 2 <IP-de-coredns>
+```
+
+**Causa común:** Problema de red entre nodos (ver "Pods no se comunican entre nodos")
+
+### Error "bad --node-ip" al reiniciar k3s
+
+**Síntoma:** 
+```
+Error: failed to run Kubelet: bad --node-ip "10.0.0.1,10.0.0.1": must contain either a single IP or a dual-stack pair
+```
+
+**Causa:** `node-ip` duplicado en config y flags de instalación
+
+**Solución:**
+```bash
+# Usar solo flannel-iface, no node-ip
+sudo tee /etc/rancher/k3s/config.yaml << EOF
+flannel-iface: eth0
+EOF
+
+sudo systemctl restart k3s
+```
+
+### Ingress devuelve 404
+
+**Síntoma:** Acceder a `http://app.k8s.homelab.local` devuelve 404
+
+**Causas posibles:**
+
+1. **DNS no resuelve:** Verificar que dnsmasq tiene el wildcard
+```bash
+nslookup app.k8s.homelab.local 10.0.0.1
+# Debe resolver a 10.0.0.50
+```
+
+2. **Ingress no creado:** Verificar que existe
+```bash
+kubectl get ingress -A
+```
+
+3. **Host header incorrecto:** Probar con curl
+```bash
+curl -H "Host: app.k8s.homelab.local" http://10.0.0.50
+```
+
+4. **Service no existe:** Verificar que el backend existe
+```bash
+kubectl get svc -n <namespace>
+```
+
+### PVC en estado Pending
+
+**Síntoma:** `kubectl get pvc` muestra `STATUS: Pending`
+
+**Causa (con local-path):** Es normal hasta que un Pod lo use. El provisioner `local-path` usa `WaitForFirstConsumer`.
+
+**Solución:** Crear un Pod/Deployment que use el PVC. El estado cambiará a `Bound`.
+
+### kubectl no conecta al cluster
+
+**Síntoma:** `The connection to the server 10.0.0.1:6443 was refused`
+
+**Causas:**
+
+1. **k3s reiniciándose:** Esperar 30-60 segundos
+```bash
+ssh rp1-master "sudo systemctl status k3s"
+```
+
+2. **VPN no conectada:** Verificar Tailscale
+```bash
+tailscale status
+```
+
+3. **kubeconfig incorrecto:**
+```bash
+export KUBECONFIG=~/.kube/config
+kubectl config view
+```
+
+---
+
+## Comandos de Diagnóstico k8s
+```bash
+# Estado del cluster
+kubectl get nodes -o wide
+kubectl get pods -A
+
+# Ver eventos (útil para debugging)
+kubectl get events -A --sort-by='.lastTimestamp'
+
+# Describir recurso (muestra eventos y errores)
+kubectl describe pod <pod> -n <namespace>
+kubectl describe node <node>
+
+# Logs de pods
+kubectl logs <pod> -n <namespace>
+kubectl logs -l app=<label> -n <namespace>
+
+# Entrar a un pod
+kubectl exec -it <pod> -n <namespace> -- sh
+
+# Ver configuración de red
+kubectl get svc -A
+kubectl get ingress -A
+kubectl get endpoints -A
+
+# Probar DNS desde un pod
+kubectl run test --rm -it --image=alpine -- nslookup kubernetes.default
+
+# Ver asignación de IPs de Flannel
+kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.podCIDR}{"\n"}{end}'
+```
