@@ -1,4 +1,4 @@
-# ADR 010: MetalLB para LoadBalancer en Bare-Metal
+# ADR 011: MetalLB para LoadBalancer en Bare-Metal
 
 ## Estado
 

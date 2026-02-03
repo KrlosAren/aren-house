@@ -168,16 +168,26 @@ homelab-ansible/
 ├── inventory/
 │   └── inventory.yml
 ├── playbooks/
-│   ├── gateway.yml          # Configurar gateway completo
-│   ├── wireguard.yml        # Configurar WireGuard VPN
-│   ├── setup-netboot-server.yml  # Configurar servidor netboot
-│   ├── setup-ssh.yml        # Distribuir claves SSH
-│   ├── prepare-node.yml     # Preparar nodo para netboot
-│   ├── common.yml           # Config base (timezone, NTP, packages)
-│   ├── node-info.yml        # Info de todos los nodos
-│   ├── reboot-nodes.yml     # Reinicio controlado
-│   ├── update-nodes.yml     # Actualizar paquetes
-│   └── update-kernel.yml    # Actualizar kernel
+│   ├── gateway.yml               # Configurar gateway completo
+│   ├── common.yml                # Config base (timezone, NTP, locales, paquetes)
+│   ├── k3s.yml                   # Instalar k3s server y agents
+│   ├── metallb.yml               # Instalar MetalLB (LoadBalancer)
+│   ├── firewall.yml              # Configurar UFW en gateway y nodos
+│   ├── docker.yml                # Instalar Docker (storage driver vfs)
+│   ├── local-storage.yml         # Configurar discos locales en nodos
+│   ├── setup-netboot-server.yml  # Preparar estructura NFS/TFTP para netboot
+│   ├── prepare-node.yml          # Preparar nodo para netboot
+│   ├── setup-ssh.yml             # Distribuir claves SSH
+│   ├── wireguard.yml             # Configurar WireGuard VPN
+│   ├── tailscale.yml             # Configurar Tailscale VPN mesh
+│   ├── duckdns.yml               # Configurar DuckDNS (IP pública dinámica)
+│   ├── node-exporter.yml         # Instalar Prometheus node_exporter
+│   ├── registry.yml              # Configurar registry privado local
+│   ├── install-basic-tools-nodes.yml  # Herramientas básicas en nodos
+│   ├── update-nodes.yml          # Actualizar paquetes
+│   ├── update-kernel.yml         # Actualizar kernel en TFTP
+│   ├── node-info.yml             # Info de todos los nodos
+│   └── reboot-nodes.yml          # Reinicio controlado
 └── roles/
     ├── wireguard/
     │   ├── defaults/main.yml
@@ -398,10 +408,18 @@ ping rp2.homelab.local
 - [x] Netboot de rp3
 - [x] Role NFS en Ansible
 - [x] NAT/IP forwarding
-- [ ] Firewall (ufw)
-- [ ] Docker en nodos
-- [ ] k3s cluster
-- [ ] Monitoreo con Prometheus/Grafana
+- [x] Firewall (ufw) - `playbooks/firewall.yml`
+- [x] Docker en nodos - `playbooks/docker.yml`
+- [x] k3s cluster - `playbooks/k3s.yml`
+- [x] MetalLB (LoadBalancer) - `playbooks/metallb.yml`
+- [x] Tailscale VPN mesh - `playbooks/tailscale.yml`
+- [x] DuckDNS (IP pública dinámica) - `playbooks/duckdns.yml`
+- [x] Node Exporter (métricas) - `playbooks/node-exporter.yml`
+- [x] Registry privado - `playbooks/registry.yml`
+- [ ] Observability en k8s (Prometheus, Grafana, Loki)
+- [ ] Longhorn (storage distribuido)
+- [ ] Cert-Manager (certificados TLS)
+- [ ] Alerting (Alertmanager)
 
 ## Decisiones arquitectónicas
 
@@ -413,6 +431,13 @@ Ver [docs/decisions/](../docs/decisions/) para ADRs completos.
 | 002 | [Segmentación de red con Raspberry Pi](../docs/decisions/002-network-segmentation.md) |
 | 003 | [dnsmasq como DHCP, DNS y TFTP](../docs/decisions/003-dnsmasq-dhcp-dns-tftp.md) |
 | 004 | [IP Forwarding y NAT](../docs/decisions/004-ip-forwarding-nat.md) |
+| 005 | [UFW Firewall](../docs/decisions/005-ufw-firewall.md) |
+| 006 | [Netboot vs Local boot](../docs/decisions/006-netboot-vs-local.md) |
+| 007 | [Docker storage overlay](../docs/decisions/007-docker-storage-overlay.md) |
+| 008 | [Tailscale para CGNAT](../docs/decisions/008-tailscale-cgnat.md) |
+| 009 | [Workaround para CGNAT](../docs/decisions/009-cgnat-workaround.md) |
+| 010 | [k3s storage en NFS](../docs/decisions/010-k3s-storage-on-nfs.md) |
+| 011 | [MetalLB](../docs/decisions/011-metallb.md) |
 
 ## Lecciones aprendidas
 

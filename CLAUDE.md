@@ -141,13 +141,23 @@ ssh rp3-node "bridge fdb show dev flannel.1"
 | Playbook | Función |
 |----------|---------|
 | `gateway.yml` | Configuración completa de rp1-master |
-| `k3s.yml` | Instalar k3s server y agents |
-| `metallb.yml` | Instalar y configurar MetalLB |
-| `firewall.yml` | Configurar UFW |
-| `docker.yml` | Instalar Docker |
-| `local-storage.yml` | Configurar storage local |
+| `common.yml` | Config base del sistema (timezone, NTP, locales, paquetes) |
+| `k3s.yml` | Instalar k3s server y agents con Tailscale forwarding |
+| `metallb.yml` | Instalar y configurar MetalLB (pool 10.0.0.50-60) |
+| `firewall.yml` | Configurar UFW en gateway y nodos |
+| `docker.yml` | Instalar Docker con storage driver vfs para NFS boot |
+| `local-storage.yml` | Configurar y montar discos locales en nodos |
+| `setup-netboot-server.yml` | Preparar estructura NFS y TFTP para netboot |
 | `prepare-node.yml` | Preparar nodo para netboot |
+| `setup-ssh.yml` | Distribuir claves SSH del gateway a los nodos |
+| `wireguard.yml` | Instalar y configurar WireGuard VPN |
+| `tailscale.yml` | Instalar y configurar Tailscale VPN mesh |
+| `duckdns.yml` | Configurar DuckDNS para actualización de IP pública |
+| `node-exporter.yml` | Instalar Prometheus node_exporter en todos los hosts |
+| `registry.yml` | Configurar registry privado local para Docker/containerd |
+| `install-basic-tools-nodes.yml` | Instalar herramientas básicas en nodos worker |
 | `update-nodes.yml` | Actualizar paquetes |
+| `update-kernel.yml` | Actualizar kernel en TFTP de nodos netboot |
 | `node-info.yml` | Info de nodos |
 | `reboot-nodes.yml` | Reinicio controlado |
 
@@ -169,17 +179,57 @@ ansible-playbook playbooks/k3s.yml --check
 ## File Structure
 ```
 homelab-ansible/
+├── ansible.cfg
+├── inventory/
+│   └── inventory.yml
 ├── playbooks/
 │   ├── gateway.yml
+│   ├── common.yml
 │   ├── k3s.yml
 │   ├── metallb.yml
-│   └── ...
-├── roles/
-│   ├── wireguard/
-│   ├── dnsmasq/
-│   └── nfs/
-└── inventory/
+│   ├── firewall.yml
+│   ├── docker.yml
+│   ├── local-storage.yml
+│   ├── setup-netboot-server.yml
+│   ├── prepare-node.yml
+│   ├── setup-ssh.yml
+│   ├── wireguard.yml
+│   ├── tailscale.yml
+│   ├── duckdns.yml
+│   ├── node-exporter.yml
+│   ├── registry.yml
+│   ├── install-basic-tools-nodes.yml
+│   ├── update-nodes.yml
+│   ├── update-kernel.yml
+│   ├── node-info.yml
+│   └── reboot-nodes.yml
+└── roles/
+    ├── wireguard/
+    ├── dnsmasq/
+    └── nfs/
 
+# Documentación (en ../docs/ relativo a homelab-ansible)
+../docs/
+├── architecture.md
+├── k3s-setup.md
+├── troubleshooting.md
+├── ansible-guide.md
+├── dns-setup.md
+├── docker-setup.md
+├── firewall-guide.md
+├── linux-users-management.md
+├── local-storage.md
+├── netboot-concepts.md
+├── netboot-node-setup.md
+├── observability.md
+├── ssh-authentication.md
+├── tailscale-setup.md
+├── decisions/        # ADRs (001-011)
+├── concepts/         # Teoría (15 archivos)
+├── guides/           # How-to (5 archivos)
+└── runbooks/         # Operaciones (disaster-recovery, maintenance)
+
+# En los nodos remotos
 /srv/
 ├── nfs/
 │   ├── rp2/          # Root filesystem for rp2
@@ -221,20 +271,82 @@ sudo iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -o enx00e04c683da2 -j MASQUER
 ```
 
 ## Documentation
+
+La documentación está en `../docs/` (relativo a homelab-ansible, es decir en la raíz del monorepo `aren-house/docs/`).
+
 ```
 docs/
-├── decisions/           # ADRs
-├── concepts/            # Teoría
-├── guides/              # How-to
-├── k3s-setup.md         # Guía de k3s y troubleshooting
-├── architecture.md
-└── troubleshooting.md
+├── architecture.md            # Arquitectura general del homelab
+├── k3s-setup.md               # Guía de k3s y troubleshooting
+├── troubleshooting.md         # Troubleshooting general
+├── ansible-guide.md           # Guía de Ansible
+├── dns-setup.md               # Configuración DNS
+├── docker-setup.md            # Configuración Docker
+├── firewall-guide.md          # Guía de firewall/UFW
+├── linux-users-management.md  # Gestión de usuarios Linux
+├── local-storage.md           # Storage local en nodos
+├── netboot-concepts.md        # Conceptos de netboot
+├── netboot-node-setup.md      # Setup de nodos netboot
+├── observability.md           # Observabilidad (Prometheus, Grafana)
+├── ssh-authentication.md      # Autenticación SSH
+├── tailscale-setup.md         # Configuración Tailscale
+├── decisions/                 # ADRs (Architectural Decision Records)
+│   ├── 001-wireguard-over-openvpn.md
+│   ├── 002-network-segmentation.md
+│   ├── 003-dnsmasq-dhcp-dns-tftp.md
+│   ├── 004-ip-forwarding-nat.md
+│   ├── 005-ufw-firewall.md
+│   ├── 006-netboot-vs-local.md
+│   ├── 007-docker-storage-overlay.md
+│   ├── 008-tailscale-cgnat.md
+│   ├── 009-cgnat-workaround.md
+│   ├── 010-k3s-storage-on-nfs.md
+│   └── 011-metallb.md
+├── concepts/                  # Teoría y conceptos
+│   ├── dhcp.md, dns.md, nat.md, nfs.md, pxe.md, tftp.md
+│   ├── ip-forwarding.md, iptables-basics.md, ufw.md
+│   ├── netplan.md, systemd.md, vpn.md, wireguard.md
+│   └── raspberry-pi-eeprom.md
+├── guides/                    # How-to guides
+│   ├── firewall.md
+│   ├── k3s-guide.md
+│   ├── network-troubleshooting.md
+│   ├── playbook-usage.md
+│   └── service-management.md
+└── runbooks/                  # Runbooks operacionales
+    ├── disaster-recovery.md
+    └── maintenance.md
 ```
+
+## Project History
+
+El proyecto ha evolucionado a través del tiempo. Cada decisión está documentada con ADRs (Architectural Decision Records) en `docs/decisions/`. Es importante preservar el historial y nunca borrar decisiones anteriores, solo marcarlas como superseded.
+
+### Evolución de VPN
+1. **OpenVPN** (evaluado) → Descartado por complejidad (ADR-001)
+2. **WireGuard** (2025-12) → Implementado como VPN primaria. Role: `roles/wireguard/`, playbook: `wireguard.yml` (ADR-001)
+3. **Tailscale** (2025-12) → Reemplazó a WireGuard como VPN primaria porque el ISP (Entel Chile) usa CGNAT, bloqueando conexiones entrantes. WireGuard queda como backup/legacy (ADR-008, ADR-009)
+
+### Evolución de Storage
+1. **NFS puro** → Docker usaba driver `vfs` sobre NFS (lento)
+2. **Storage local** (2025-12) → microSD/SSD local para Docker con overlay2, symlink strategy (ADR-007)
+3. **k3s storage local** (2026-01) → Mismo principio para containerd/k3s: `/var/lib/rancher` → `/var/lib/rancher-local` (ADR-010)
+
+### Evolución de Networking k8s
+1. **NodePort** → Servicios k8s expuestos en puertos altos (30000+)
+2. **Traefik Docker como proxy** → Doble salto, configuración duplicada
+3. **MetalLB** (2026-01) → LoadBalancer nativo con IPs reales (10.0.0.50-60), un solo entry point (ADR-011)
+
+### Evolución de acceso a internet
+1. **IP pública + port forwarding** → Asumido inicialmente
+2. **Descubrimiento de CGNAT** → ISP comparte IP pública, port forwarding no funciona (ADR-009)
+3. **DuckDNS + Tailscale** → DuckDNS trackea IP pública, Tailscale resuelve acceso remoto
 
 ## Development Guidelines
 
 - Document new configurations in `docs/`
-- Write ADRs for architectural decisions
+- Write ADRs for architectural decisions. Never delete old ADRs, mark them as superseded
+- When a technology is replaced, document the evolution (why it was chosen, why it was replaced)
 - Test playbooks with `--check` before applying
 - Keep commits in Spanish
 - All nodes use `admin` user with UID 1000

@@ -607,6 +607,78 @@ ansible-playbook playbook.yml -vv   # más detalle
 ansible-playbook playbook.yml -vvv  # debug
 ```
 
+## Playbooks del Proyecto
+
+### Orden de ejecución recomendado (setup inicial)
+
+Para configurar el homelab desde cero, ejecutar los playbooks en este orden:
+
+```
+1. common.yml           → Config base en todos los nodos
+2. setup-ssh.yml        → Distribuir claves SSH del gateway a nodos
+3. gateway.yml          → Roles: wireguard, dnsmasq, nfs
+4. firewall.yml         → UFW en gateway y nodos
+5. tailscale.yml        → VPN mesh (requiere auth manual)
+6. docker.yml           → Docker en todos los nodos
+7. local-storage.yml    → Montar discos locales
+8. k3s.yml              → Cluster Kubernetes
+9. metallb.yml          → LoadBalancer para k3s
+10. node-exporter.yml   → Métricas Prometheus
+```
+
+### Playbooks de operación (uso recurrente)
+
+| Playbook | Uso | Ejemplo |
+|----------|-----|---------|
+| `update-nodes.yml` | Actualizar paquetes | `ansible-playbook playbooks/update-nodes.yml` |
+| `update-kernel.yml` | Actualizar kernel en TFTP | `ansible-playbook playbooks/update-kernel.yml` |
+| `node-info.yml` | Ver info de todos los nodos | `ansible-playbook playbooks/node-info.yml` |
+| `reboot-nodes.yml` | Reinicio controlado | `ansible-playbook playbooks/reboot-nodes.yml` |
+
+### Playbooks de setup adicional
+
+| Playbook | Uso | Notas |
+|----------|-----|-------|
+| `setup-netboot-server.yml` | Preparar NFS/TFTP para nuevo nodo | Requiere `-e "node_name=rp4 node_serial=SERIAL node_mac=MAC"` |
+| `prepare-node.yml` | Preparar nodo para netboot | Configura EEPROM, elimina snapd |
+| `duckdns.yml` | DNS dinámico | Requiere `-e "duckdns_token=TOKEN"` |
+| `registry.yml` | Registry privado Docker/k3s | Configura insecure-registries |
+| `install-basic-tools-nodes.yml` | Herramientas extra en nodos | speedtest-cli, htop, git |
+
+### Inventory actual
+
+```yaml
+all:
+  children:
+    gateway:
+      hosts:
+        rp1-master:
+          ansible_host: 192.168.100.18  # WAN IP
+          ansible_user: admin
+          ansible_python_interpreter: /usr/bin/python3
+    nodes:
+      hosts:
+        rp2-node:
+          ansible_host: 10.0.0.2
+          ansible_user: admin
+        rp3-node:
+          ansible_host: 10.0.0.3
+          ansible_user: admin
+```
+
+**Grupos disponibles:**
+- `all` - Los 3 nodos
+- `gateway` - Solo rp1-master
+- `nodes` - Solo rp2-node y rp3-node
+
+### Roles del proyecto
+
+| Role | Playbook que lo usa | Función |
+|------|-------------------|---------|
+| `dnsmasq` | `gateway.yml` | DHCP, DNS (.homelab.local), TFTP |
+| `nfs` | `gateway.yml` | NFS server para netboot |
+| `wireguard` | `gateway.yml` | VPN server (legacy, reemplazado por Tailscale) |
+
 ## Buenas Prácticas
 
 1. **Usa `changed_when: false`** para tareas de solo lectura

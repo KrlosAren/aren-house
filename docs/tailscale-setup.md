@@ -250,6 +250,88 @@ tailscale status
 
 ---
 
+## ACLs (Access Control Lists)
+
+Tailscale permite definir reglas de acceso entre dispositivos. Por defecto, todos los dispositivos pueden comunicarse entre sí. Para restringir:
+
+1. Ir a [Tailscale Admin → Access Controls](https://login.tailscale.com/admin/acls)
+2. Editar el archivo JSON de ACLs
+
+Ejemplo para el homelab:
+```json
+{
+  "acls": [
+    // Permitir acceso completo desde tu Mac al homelab
+    {"action": "accept", "src": ["tag:personal"], "dst": ["tag:homelab:*"]},
+    // Permitir que el homelab acceda a internet (para actualizaciones)
+    {"action": "accept", "src": ["tag:homelab"], "dst": ["autogroup:internet:*"]}
+  ],
+  "tagOwners": {
+    "tag:homelab": ["autogroup:admin"],
+    "tag:personal": ["autogroup:admin"]
+  }
+}
+```
+
+**Nota:** Las ACLs son opcionales. En un homelab personal con pocos dispositivos, la configuración por defecto (todos se ven) es suficiente.
+
+---
+
+## Exit Node
+
+Puedes configurar rp1-master como **exit node** para que todo tu tráfico de internet pase por el homelab (útil en redes WiFi públicas):
+
+### Configurar en el gateway
+```bash
+sudo tailscale up --advertise-routes=10.0.0.0/24 --advertise-exit-node
+```
+
+### Aprobar en consola web
+1. Ir a [Tailscale Admin → Machines](https://login.tailscale.com/admin/machines)
+2. Buscar rp1-master → Edit route settings
+3. Activar "Use as exit node"
+
+### Usar desde tu Mac
+```bash
+# Activar exit node (todo tu tráfico pasa por el homelab)
+tailscale up --exit-node=100.94.94.49
+
+# Desactivar exit node
+tailscale up --exit-node=
+```
+
+**Advertencia:** Con exit node activo, tu velocidad de internet estará limitada por el ancho de banda del homelab.
+
+---
+
+## MagicDNS
+
+Tailscale incluye MagicDNS que asigna nombres DNS automáticos a los dispositivos:
+
+### Habilitar
+1. Ir a [Tailscale Admin → DNS](https://login.tailscale.com/admin/dns)
+2. Activar MagicDNS
+
+### Uso
+```bash
+# Con MagicDNS, puedes usar el nombre del dispositivo directamente
+ssh admin@rp1-master    # en vez de ssh admin@100.94.94.49
+```
+
+### Limitación en el homelab
+
+MagicDNS solo funciona para dispositivos con Tailscale instalado. Los nodos rp2 y rp3 no tienen Tailscale (se accede via subnet routing desde rp1-master), por lo que no son accesibles por MagicDNS. Para ellos se sigue usando dnsmasq:
+
+```bash
+# Funciona con MagicDNS
+ssh admin@rp1-master
+
+# Requiere dnsmasq + resolver local (no MagicDNS)
+ssh admin@rp2-node     # resuelve via /etc/resolver/homelab.local → 10.0.0.1
+```
+
+---
+
 ## DuckDNS (mantener activo)
 
 Aunque Tailscale resuelve el acceso remoto, DuckDNS sigue siendo útil para:

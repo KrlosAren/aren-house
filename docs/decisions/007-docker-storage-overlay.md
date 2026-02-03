@@ -69,7 +69,7 @@ sudo ln -s /mnt/docker/docker /var/lib/docker
 | Nodo | Dispositivo | Montaje | Tamaño |
 |------|-------------|---------|--------|
 | rp2 | microSD | /mnt/docker | 29GB |
-| rp3 | SSD | /mnt/docker | 32GB |
+| rp3 | SSD | /mnt/docker | 240GB |
 
 ## Referencias
 

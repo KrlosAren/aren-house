@@ -179,7 +179,7 @@ ansible-playbook playbooks/gateway.yml
 
 ## Pérdida del SSD del Gateway
 
-**Escenario**: El SSD de 250GB con NFS/TFTP murió.
+**Escenario**: El SSD de 500GB con NFS/TFTP murió.
 
 **Impacto**: Todos los nodos pierden su filesystem.
 
@@ -216,6 +216,87 @@ ansible-playbook playbooks/gateway.yml
    ```
 
 5. **Reconstruir cada nodo** (ver [Reconstrucción Total](#reconstrucción-total))
+
+---
+
+## Cluster k3s Caído
+
+**Escenario**: El cluster k3s no funciona (server no responde, agents desconectados, pods no se programan).
+
+**Impacto**: Todas las aplicaciones desplegadas en Kubernetes dejan de funcionar.
+
+### Caso A: Solo los agents están desconectados
+
+```bash
+# Verificar estado de los agents
+ssh rp2-node "sudo systemctl status k3s-agent"
+ssh rp3-node "sudo systemctl status k3s-agent"
+
+# Reiniciar agents
+ssh rp2-node "sudo systemctl restart k3s-agent"
+ssh rp3-node "sudo systemctl restart k3s-agent"
+
+# Verificar que se unieron al cluster
+kubectl get nodes
+```
+
+### Caso B: El server k3s no responde
+
+```bash
+# En rp1-master
+sudo systemctl status k3s
+sudo journalctl -u k3s --since "10 minutes ago"
+
+# Reiniciar k3s server
+sudo systemctl restart k3s
+
+# Esperar y verificar
+kubectl get nodes
+kubectl get pods -n kube-system
+```
+
+### Caso C: Reinstalar k3s completo
+
+Si k3s está corrupto y no puede recuperarse:
+
+```bash
+# 1. Desinstalar k3s en agents primero
+ssh rp2-node "sudo /usr/local/bin/k3s-agent-uninstall.sh"
+ssh rp3-node "sudo /usr/local/bin/k3s-agent-uninstall.sh"
+
+# 2. Desinstalar k3s en server
+sudo /usr/local/bin/k3s-uninstall.sh
+
+# 3. Limpiar storage local
+sudo rm -rf /var/lib/rancher-local/*
+
+# 4. Reinstalar via Ansible
+ansible-playbook playbooks/k3s.yml
+
+# 5. Reinstalar MetalLB
+ansible-playbook playbooks/metallb.yml
+
+# 6. Verificar cluster
+kubectl get nodes -o wide
+kubectl get pods -n kube-system
+kubectl get svc -n kube-system traefik
+```
+
+### Caso D: Recuperar kubeconfig
+
+```bash
+# Si perdiste acceso kubectl desde tu Mac
+scp admin@10.0.0.1:/etc/rancher/k3s/k3s.yaml ~/.kube/config-homelab
+
+# Cambiar IP al Tailscale
+# En ~/.kube/config-homelab, reemplazar server: https://127.0.0.1:6443
+# por server: https://100.94.94.49:6443
+
+export KUBECONFIG=~/.kube/config-homelab
+kubectl get nodes
+```
+
+**Nota:** Los manifests de aplicaciones desplegadas en k3s se pierden al reinstalar. Mantén tus manifests YAML en el repositorio git para poder re-aplicarlos.
 
 ---
 
@@ -318,7 +399,31 @@ Para cada nodo (rp2, rp3):
     ansible rp2-node -m ping
     ```
 
-### Fase 3: Verificación Final
+### Fase 3: Kubernetes (30-60 min)
+
+1. **Instalar k3s**
+   ```bash
+   ansible-playbook playbooks/k3s.yml
+   ```
+
+2. **Instalar MetalLB**
+   ```bash
+   ansible-playbook playbooks/metallb.yml
+   ```
+
+3. **Verificar cluster**
+   ```bash
+   kubectl get nodes -o wide
+   kubectl get pods -n kube-system
+   kubectl get svc -n kube-system traefik  # Debe tener EXTERNAL-IP
+   ```
+
+4. **Re-aplicar manifests de aplicaciones** (si los tienes en git)
+   ```bash
+   kubectl apply -f mis-apps/
+   ```
+
+### Fase 4: Verificación Final
 
 ```bash
 # Todos los nodos responden
@@ -326,6 +431,10 @@ ansible all -m ping
 
 # Servicios funcionan
 systemctl status dnsmasq nfs-kernel-server wg-quick@wg0
+
+# k3s funciona
+kubectl get nodes -o wide
+kubectl get pods -A
 
 # VPN conecta
 sudo wg-quick up ~/homelab.conf
@@ -344,6 +453,9 @@ ping 10.0.0.1
 | Claves WireGuard | /etc/wireguard/ | Única vez |
 | Filesystems NFS | /srv/nfs/* | Semanal |
 | dnsmasq leases | /var/lib/misc/ | Opcional |
+| k3s token | /var/lib/rancher/k3s/server/node-token | Única vez |
+| kubeconfig | /etc/rancher/k3s/k3s.yaml | Cada reinstalación |
+| Manifests k8s | Git repo (recomendado) | Cada cambio |
 
 ### Script de backup
 

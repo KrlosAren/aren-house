@@ -63,7 +63,9 @@ ansible-playbook playbooks/node-exporter.yml
 | Servicio | URL | Credenciales |
 |----------|-----|--------------|
 | Prometheus | http://10.0.0.2:9090 | - |
-| Grafana | http://10.0.0.2:3000 | admin / admin |
+| Grafana | http://10.0.0.2:3000 | admin / (cambiar al primer login) |
+
+> **Seguridad:** Cambia la contraseña por defecto de Grafana (`admin/admin`) en el primer login. Ve a Profile → Change Password. Aunque el servicio solo es accesible desde la LAN/VPN, mantener contraseñas por defecto es un riesgo innecesario.
 
 ---
 
@@ -206,3 +208,36 @@ sudo ufw status | grep 9100
    http://10.0.0.2:9090/targets
 ```
 3. Verificar queries en panel
+
+---
+
+## Métricas de k3s (futuro)
+
+Para monitorear el cluster k3s, se puede agregar scraping de métricas de Kubernetes:
+
+```yaml
+# Agregar a prometheus.yml cuando se migre al cluster
+scrape_configs:
+  - job_name: 'kubernetes-nodes'
+    static_configs:
+      - targets:
+          - '10.0.0.1:10250'  # kubelet rp1-master
+          - '10.0.0.2:10250'  # kubelet rp2-node
+          - '10.0.0.3:10250'  # kubelet rp3-node
+
+  - job_name: 'kubernetes-api'
+    static_configs:
+      - targets: ['10.0.0.1:6443']
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+```
+
+### Pendientes de observabilidad
+
+- [ ] Migrar Prometheus/Grafana al cluster k3s
+- [ ] Agregar Loki para logs centralizados
+- [ ] Configurar Alertmanager con notificaciones
+- [ ] Dashboard específico de k3s (pods, deployments, services)
+- [ ] Retención de métricas (actualmente sin límite)

@@ -27,11 +27,30 @@ ansible nodes -m shell -a "df -h /"
 ansible all -m ping
 ```
 
-### 4. Revisar logs de errores
+### 4. Verificar estado de k3s
+
+```bash
+# Nodos del cluster
+kubectl get nodes -o wide
+
+# Pods del sistema (todos deben estar Running)
+kubectl get pods -n kube-system
+
+# MetalLB (speaker en cada nodo, controller activo)
+kubectl get pods -n metallb-system
+
+# Verificar que Traefik tiene IP de LoadBalancer
+kubectl get svc -n kube-system traefik
+```
+
+### 5. Revisar logs de errores
 
 ```bash
 # En gateway
 sudo journalctl -p err --since "1 week ago" --no-pager | head -50
+
+# Errores de k3s
+sudo journalctl -u k3s -p err --since "1 week ago" --no-pager | head -20
 ```
 
 ## Checklist Mensual
@@ -69,14 +88,30 @@ sudo touch /srv/nfs/rp3/test-write
 sudo rm /srv/nfs/rp3/test-write
 ```
 
-### 4. Limpiar logs antiguos
+### 4. Mantenimiento de k3s
+
+```bash
+# Limpiar imágenes no usadas en containerd (en cada nodo)
+ansible all -m shell -a "sudo k3s crictl rmi --prune" -b
+
+# Verificar espacio en disco local de k3s
+ansible all -m shell -a "df -h /var/lib/rancher-local" -b
+
+# Verificar que Flannel anuncia IPs correctas (deben ser 10.0.0.x)
+kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.flannel\.alpha\.coreos\.com/public-ip}{"\n"}{end}'
+
+# Verificar eventos recientes (errores o warnings)
+kubectl get events -A --sort-by='.lastTimestamp' | tail -20
+```
+
+### 5. Limpiar logs antiguos
 
 ```bash
 # En gateway
 sudo journalctl --vacuum-time=30d
 ```
 
-### 5. Crear backup
+### 6. Crear backup
 
 ```bash
 # En gateway
@@ -180,6 +215,9 @@ sudo wg syncconf wg0 <(sudo wg-quick strip wg0)
    ```bash
    # Ver conexiones NFS activas
    ss -tn | grep 2049
+
+   # Ver pods corriendo en k3s
+   kubectl get pods -A --field-selector status.phase=Running
    ```
 
 3. **Reiniciar**
@@ -189,9 +227,38 @@ sudo wg syncconf wg0 <(sudo wg-quick strip wg0)
 
 4. **Verificar después del reinicio**
    ```bash
+   # Servicios base
    systemctl status dnsmasq nfs-kernel-server wg-quick@wg0
+
+   # k3s server
+   sudo systemctl status k3s
+   kubectl get nodes -o wide
+   kubectl get pods -n kube-system
+
+   # Nodos
    ansible all -m ping
    ```
+
+### Mantenimiento de nodos k3s (drain/uncordon)
+
+```bash
+# 1. Marcar nodo como no programable
+kubectl cordon rp2-node
+
+# 2. Drenar pods (los mueve a otros nodos)
+kubectl drain rp2-node --ignore-daemonsets --delete-emptydir-data
+
+# 3. Realizar mantenimiento
+ssh rp2-node "sudo apt update && sudo apt upgrade -y"
+ssh rp2-node "sudo reboot"
+
+# 4. Esperar a que vuelva y reactivar
+kubectl uncordon rp2-node
+
+# 5. Verificar
+kubectl get nodes
+kubectl get pods -o wide
+```
 
 ### Actualizar kernel en nodos netboot
 

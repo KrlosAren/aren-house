@@ -29,8 +29,14 @@ Ver [ADR-005: UFW Firewall](../decisions/005-ufw-firewall.md) para decisiones de
 | 53 | TCP/UDP | DNS | 10.0.0.0/24 |
 | 67-68 | UDP | DHCP | 10.0.0.0/24 |
 | 69 | UDP | TFTP | 10.0.0.0/24 |
+| 80 | TCP | HTTP (Traefik) | 10.0.0.0/24 |
 | 111 | TCP/UDP | RPC (NFS) | 10.0.0.0/24 |
+| 443 | TCP | HTTPS (Traefik) | 10.0.0.0/24 |
 | 2049 | TCP/UDP | NFS | 10.0.0.0/24 |
+| 6443 | TCP | k3s API Server | 10.0.0.0/24, Tailscale |
+| 8472 | UDP | Flannel VXLAN | 10.0.0.0/24 |
+| 9100 | TCP | node_exporter | 10.0.0.0/24 |
+| 10250 | TCP | kubelet | 10.0.0.0/24 |
 | 51820 | UDP | WireGuard | 0.0.0.0/0 (WAN) |
 
 ### Tráfico FORWARD necesario
@@ -40,6 +46,8 @@ Ver [ADR-005: UFW Firewall](../decisions/005-ufw-firewall.md) para decisiones de
 | 10.0.0.0/24 | Internet | Nodos acceden a internet |
 | 10.0.1.0/24 | 10.0.0.0/24 | VPN accede a red interna |
 | 10.0.1.0/24 | Internet | VPN accede a internet |
+| tailscale0 | * | Tráfico entrante desde Tailscale |
+| * | tailscale0 | Tráfico saliente hacia Tailscale |
 
 ## Configuración con UFW
 
@@ -288,10 +296,26 @@ sudo tail -f /var/log/syslog | grep IPT
 sudo journalctl -f | grep IPT
 ```
 
+## Notas sobre k3s y Tailscale
+
+### k3s
+
+El playbook `k3s.yml` agrega automáticamente reglas iptables para FORWARD de Tailscale y las persiste con `iptables-persistent`. Los puertos críticos de k3s son:
+
+- **6443/TCP** - API Server (kubectl se conecta aquí)
+- **8472/UDP** - Flannel VXLAN (comunicación entre pods de distintos nodos)
+- **10250/TCP** - kubelet (métricas y logs de pods)
+
+El playbook `firewall.yml` permite todo el tráfico desde la LAN en eth0 (`ufw allow in on eth0 from 10.0.0.0/24`), lo que cubre estos puertos para comunicación entre nodos.
+
+### Tailscale
+
+Tailscale maneja su propio tunnel y no necesita puertos explícitos en UFW. Sin embargo, el playbook `k3s.yml` agrega reglas FORWARD para la interfaz `tailscale0` para permitir que el tráfico de kubectl via Tailscale llegue al API Server.
+
 ## Próximos Pasos
 
 1. ~~Crear rol Ansible para firewall~~ (completado: `playbooks/firewall.yml`)
 2. ~~Agregar rate limiting para protección contra fuerza bruta~~ (completado: `ufw limit` en SSH)
-3. Considerar fail2ban para SSH
-4. Agregar logging de paquetes rechazados
-5. Revisar reglas HTTP/HTTPS cuando se desplieguen servicios web
+3. ~~Revisar reglas HTTP/HTTPS para servicios web~~ (completado: Traefik via MetalLB)
+4. Considerar fail2ban para SSH
+5. Agregar logging de paquetes rechazados

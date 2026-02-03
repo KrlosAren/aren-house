@@ -11,6 +11,8 @@
   become: yes
 
   vars:
+    # NOTA: Para agregar un nuevo nodo netboot, agrega una entrada aquí
+    # con su nombre, ruta NFS y serial TFTP (últimos 8 chars de /proc/cpuinfo Serial)
     nodes:
       rp2:
         nfs_path: /srv/nfs/rp2

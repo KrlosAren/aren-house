@@ -1,7 +1,7 @@
 # 001. WireGuard sobre OpenVPN
 
 **Fecha:** 2025-12-06
-**Estado:** Aceptado
+**Estado:** Superseded por [ADR-008: Tailscale para CGNAT](008-tailscale-cgnat.md)
 
 ## Contexto
 
@@ -33,3 +33,9 @@ Usar **WireGuard** como solución VPN.
 - Puerto UDP 51820 por defecto
 - Las llaves se generan con `wg genkey` y `wg pubkey`
 - La llave pública de cada lado va en el `[Peer]` del otro
+
+## Actualización (2026-01)
+
+WireGuard fue reemplazado por **Tailscale** como solución primaria de VPN debido a que el ISP usa CGNAT, lo que impide conexiones entrantes al puerto 51820. WireGuard queda como solución de backup/legacy para cuando se tenga IP pública.
+
+Ver [ADR-008: Tailscale para CGNAT](008-tailscale-cgnat.md) y [ADR-009: Workaround CGNAT](009-cgnat-workaround.md).

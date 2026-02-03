@@ -68,7 +68,11 @@ AllowedIPs = 10.10.10.2/32
 # → Solo acepta paquetes de este peer con IP 10.10.10.2
 ```
 
-## En el homelab
+## Estado actual en el homelab
+
+> **Nota:** WireGuard fue reemplazado por **Tailscale** como VPN primaria porque el ISP usa CGNAT, lo que bloquea conexiones entrantes al puerto 51820. WireGuard queda instalado como solución de backup para cuando se tenga IP pública. Ver [ADR-008: Tailscale para CGNAT](../decisions/008-tailscale-cgnat.md) y [Tailscale Setup](../tailscale-setup.md).
+
+## Configuración en el homelab
 
 ### Configuración del servidor (Gateway)
 

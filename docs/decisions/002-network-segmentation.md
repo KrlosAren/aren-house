@@ -17,11 +17,11 @@ Opciones consideradas:
 
 ## Decisión
 
-Usar una **Raspberry Pi con dos interfaces de red** como gateway/router entre la red del modem (192.168.1.0/24) y la red del homelab (10.0.0.0/24).
+Usar una **Raspberry Pi con dos interfaces de red** como gateway/router entre la red del modem (192.168.100.0/24) y la red del homelab (10.0.0.0/24).
 
 ```
 Modem ──[USB-Ethernet]── RPi Gateway ──[eth0]── Switch TP-Link SG105PE ──┬── RPi 2 (PoE)
-192.168.1.x              192.168.1.84            │                       ├── RPi 3 (PoE)
+192.168.100.x            192.168.100.18          │                       ├── RPi 3 (PoE)
                          10.0.0.1                │                       └── (expansión)
                                                  │                           10.0.0.x
                                                  │

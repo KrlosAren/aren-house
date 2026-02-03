@@ -131,6 +131,59 @@ Agregar en el template `roles/dnsmasq/templates/dnsmasq.conf.j2`:
 host-record=nombre,nombre.homelab.local,IP
 ```
 
+## DNS para Kubernetes (k3s)
+
+### Dominios
+
+El homelab usa dos dominios DNS con propósitos diferentes:
+
+```
+*.homelab.local      → 10.0.0.1   (servicios Docker en rp1-master, via Traefik Docker)
+*.k8s.homelab.local  → 10.0.0.50  (servicios k8s, via Traefik k3s + MetalLB)
+```
+
+### Cómo se configura
+
+El playbook `metallb.yml` agrega automáticamente la entrada de k8s en dnsmasq:
+
+```ini
+# En /etc/dnsmasq.conf (agregado por metallb.yml)
+address=/.k8s.homelab.local/10.0.0.50
+```
+
+Esto hace que cualquier subdominio de `k8s.homelab.local` resuelva a la IP de MetalLB donde escucha Traefik k3s.
+
+### CoreDNS (DNS interno del cluster)
+
+k3s incluye CoreDNS para resolución DNS dentro del cluster. Los pods usan CoreDNS para resolver:
+- Nombres de Services: `mi-svc.mi-namespace.svc.cluster.local`
+- Nombres externos: se reenvían al DNS del nodo (dnsmasq)
+
+CoreDNS no afecta la resolución DNS de clientes fuera del cluster.
+
+### macOS
+
+Si usas Tailscale, necesitas un resolver adicional para el dominio k8s:
+
+```bash
+sudo bash -c 'echo "nameserver 10.0.0.1" > /etc/resolver/k8s.homelab.local'
+```
+
+## DNS con Tailscale
+
+### MagicDNS
+
+Tailscale incluye **MagicDNS**, que asigna nombres DNS automáticos a los dispositivos de la red Tailscale. Si lo habilitas en la consola de Tailscale:
+
+- `rp1-master` sería accesible como `rp1-master.<tailnet-name>.ts.net`
+- No requiere configuración en dnsmasq
+
+Para habilitarlo: [Tailscale Admin → DNS](https://login.tailscale.com/admin/dns)
+
+### Limitación actual
+
+MagicDNS solo resuelve dispositivos con Tailscale instalado. Los nodos rp2 y rp3 no tienen Tailscale (acceden via subnet routing), por lo que no son resolubles por MagicDNS. Para acceder a ellos por nombre, se sigue usando dnsmasq + el resolver local en macOS.
+
 ## Troubleshooting
 
 | Problema | Causa | Solución |
@@ -138,3 +191,5 @@ host-record=nombre,nombre.homelab.local,IP
 | `nslookup` funciona pero `ssh nombre` no | macOS no usa el DNS correcto | Crear `/etc/resolver/homelab.local` |
 | Nombre no resuelve | dnsmasq no tiene el registro | Verificar `/etc/dnsmasq.conf` |
 | DNS lento | Servidor upstream no responde | Verificar `dnsmasq_dns_servers` |
+| `*.k8s.homelab.local` no resuelve | Entrada faltante en dnsmasq | Ejecutar `playbooks/metallb.yml` o agregar manualmente `address=/.k8s.homelab.local/10.0.0.50` |
+| Pod no resuelve DNS externo | CoreDNS no puede reenviar | Verificar que dnsmasq acepta queries desde la red de pods (10.42.0.0/16) |

@@ -165,6 +165,8 @@
   vars:
     # Serial numbers de las Raspberry Pi (últimos 8 caracteres)
     # Obtener con: cat /proc/cpuinfo | grep Serial
+    # NOTA: Para agregar un nuevo nodo, agrega su hostname y serial aquí
+    # y asegúrate de que esté en inventory/inventory.yml bajo 'nodes'
     node_serials:
       rp2-node: "440dc91d"
       rp3-node: "02671e08"

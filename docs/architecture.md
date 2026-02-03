@@ -24,7 +24,7 @@
 │  │   DNS   │ │         │ │         │ │         │ │           │ │
 │  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └───────────┘ │
 │                                                                 │
-│  Storage: SSD 250GB (/srv/nfs, /srv/tftp)                      │
+│  Storage: SSD 500GB (/srv/nfs, /srv/tftp)                      │
 └─────────────────────────────────────────────────────────────────┘
                                   │
                                   │ eth0 (LAN 10.0.0.0/24)
@@ -38,13 +38,13 @@
 │                             │ │                             │
 │  Boot: NFS (desde gateway)  │ │  Boot: NFS (desde gateway)  │
 │  Docker: microSD local      │ │  Docker: SSD local          │
-│                             │ │  Storage: SSD 433GB         │
+│                             │ │  Storage: SSD 240GB         │
 │  ┌─────────┐ ┌───────────┐  │ │                             │
 │  │ Docker  │ │ Prometheus│  │ │  ┌─────────┐                │
 │  │(overlay)│ │  Grafana  │  │ │  │ Docker  │                │
 │  └─────────┘ └───────────┘  │ │  │(overlay)│                │
 │                             │ │  └─────────┘                │
-│  Storage: microSD 29GB      │ │  Storage: SSD 500GB         │
+│  Storage: microSD 29GB      │ │  Storage: SSD 240GB         │
 └─────────────────────────────┘ └─────────────────────────────┘
 
 
@@ -71,9 +71,9 @@
 
 | Dispositivo | Rol | IP LAN | IP Tailscale | Storage |
 |-------------|-----|--------|--------------|---------|
-| Raspberry Pi 5 | Gateway (rp1-master) | 10.0.0.1 | 100.94.94.49 | SSD 250GB |
+| Raspberry Pi 5 | Gateway (rp1-master) | 10.0.0.1 | 100.94.94.49 | SSD 500GB |
 | Raspberry Pi 5 | Node (rp2-node) | 10.0.0.2 | via subnet | microSD 29GB |
-| Raspberry Pi 5 | Node (rp3-node) | 10.0.0.3 | via subnet | SSD 500GB |
+| Raspberry Pi 5 | Node (rp3-node) | 10.0.0.3 | via subnet | SSD 240GB |
 
 ### Redes
 
