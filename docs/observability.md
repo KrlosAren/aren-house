@@ -211,12 +211,12 @@ sudo ufw status | grep 9100
 
 ---
 
-## Métricas de k3s (futuro)
+## Métricas de k3s
 
-Para monitorear el cluster k3s, se puede agregar scraping de métricas de Kubernetes:
+El cluster k3s está desplegado y expone métricas que se pueden agregar a Prometheus:
 
 ```yaml
-# Agregar a prometheus.yml cuando se migre al cluster
+# Agregar a prometheus.yml para monitorear k3s
 scrape_configs:
   - job_name: 'kubernetes-nodes'
     static_configs:

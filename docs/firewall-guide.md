@@ -141,8 +141,11 @@ Routed: ALLOW (permitir NAT)
 | 69/udp | TFTP | LAN (broadcast) | Netboot de Raspberry Pi |
 | 111/tcp | RPC | LAN, VPN | Portmapper para NFS |
 | 2049/tcp | NFS | LAN, VPN | Filesystem de red |
-| 80/tcp | HTTP | Anywhere | Servicios web futuros |
-| 443/tcp | HTTPS | Anywhere | Servicios web futuros |
+| 80/tcp | HTTP | Anywhere | Servicios web (Traefik) |
+| 443/tcp | HTTPS | Anywhere | Servicios web (Traefik) |
+| 6443/tcp | k3s API | LAN, Tailscale | kubectl se conecta aquí |
+| 8472/udp | Flannel VXLAN | LAN | Comunicación entre pods de distintos nodos |
+| 10250/tcp | kubelet | LAN | Métricas y logs de pods |
 | Todo | Netboot | LAN en eth0 | NFS usa puertos dinámicos |
 
 ### ¿Por qué "Todo desde LAN"?
@@ -280,8 +283,8 @@ En Ansible, esto significa crear las reglas de `allow` ANTES de configurar las p
         └──────────┘                  └──────────┘
 
 
-                         VPN
-                     10.0.1.0/24
+                     Tailscale VPN
+                     100.x.x.x
                     (tu Mac remoto)
                           │
                           ▼
@@ -289,6 +292,7 @@ En Ansible, esto significa crear las reglas de `allow` ANTES de configurar las p
                     - SSH (todos)
                     - DNS
                     - NFS
+                    - kubectl (6443)
 ```
 
 ---

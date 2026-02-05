@@ -327,6 +327,7 @@ Dashboards
 | dnsmasq como DHCP/DNS/TFTP | Solución integrada y ligera | [ADR-003](decisions/003-dnsmasq-dhcp-dns-tftp.md) |
 | UFW como firewall | Simplicidad sobre iptables directo | [ADR-005](decisions/005-ufw-firewall.md) |
 | MetalLB para LoadBalancer | Asigna IPs reales en bare-metal | [ADR-011](decisions/011-metallb.md) |
+| k3s sobre k8s vanilla | Menor uso de recursos, ideal para ARM/homelab | [ADR-012](decisions/012-k3s-over-k8s.md) |
 
 ---
 

@@ -21,6 +21,7 @@ Explicaciones de los conceptos técnicos utilizados en el homelab. Útil como re
 |----------|-------------|
 | [VPN](vpn.md) | Túneles seguros de red |
 | [WireGuard](wireguard.md) | Protocolo VPN moderno |
+| [UFW](ufw.md) | Uncomplicated Firewall para Linux |
 
 ### Sistemas
 | Concepto | Descripción |
@@ -32,6 +33,12 @@ Explicaciones de los conceptos técnicos utilizados en el homelab. Útil como re
 | Concepto | Descripción |
 |----------|-------------|
 | [EEPROM](raspberry-pi-eeprom.md) | Configuración de boot en Raspberry Pi |
+
+### Kubernetes
+Para conceptos de Kubernetes/k3s, ver:
+- [K3s Setup](../k3s-setup.md) - Guía de instalación y configuración
+- [K3s Guide](../guides/k3s-guide.md) - Guía operacional
+- [ADR-012: K3s sobre k8s vanilla](../decisions/012-k3s-over-k8s.md) - Por qué k3s
 
 ## Cómo agregar conceptos
 

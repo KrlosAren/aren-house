@@ -70,10 +70,19 @@ Procedimientos para recuperar el homelab ante diferentes escenarios de fallo.
 7. **Si el SSD no sobrevivió, reconstruir nodos**
    - Ver sección [Reconstrucción Total](#reconstrucción-total)
 
-8. **Verificar servicios**
+8. **Reinstalar Tailscale y k3s**
    ```bash
-   systemctl status dnsmasq nfs-kernel-server wg-quick@wg0
+   ansible-playbook playbooks/tailscale.yml
+   ansible-playbook playbooks/k3s.yml
+   ansible-playbook playbooks/metallb.yml
+   ```
+
+9. **Verificar servicios**
+   ```bash
+   systemctl status dnsmasq nfs-kernel-server k3s
    sudo exportfs -v
+   tailscale status
+   kubectl get nodes -o wide
    ```
 
 9. **Probar que los nodos bootean**
@@ -430,14 +439,15 @@ Para cada nodo (rp2, rp3):
 ansible all -m ping
 
 # Servicios funcionan
-systemctl status dnsmasq nfs-kernel-server wg-quick@wg0
+systemctl status dnsmasq nfs-kernel-server k3s
 
 # k3s funciona
 kubectl get nodes -o wide
 kubectl get pods -A
+kubectl get svc -n kube-system traefik  # Debe tener EXTERNAL-IP 10.0.0.50
 
 # VPN conecta
-sudo wg-quick up ~/homelab.conf
+tailscale status
 ping 10.0.0.1
 ```
 

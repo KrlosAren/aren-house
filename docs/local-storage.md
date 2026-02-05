@@ -130,6 +130,38 @@ ls -la /var/lib/docker
 
 ---
 
+## Storage para k3s/containerd
+
+El mismo problema de NFS + overlay2 aplica para k3s/containerd. La solución es idéntica: symlink a disco local.
+
+```
+rp2-node:
+├── / (root)              → NFS (gateway)
+├── /mnt/docker           → microSD local
+├── /var/lib/docker       → symlink a /mnt/docker/docker
+└── /var/lib/rancher      → symlink a /mnt/docker/rancher  (k3s)
+```
+
+El playbook `k3s.yml` crea automáticamente:
+1. Directorio `/var/lib/rancher-local` en el disco local
+2. Symlink `/var/lib/rancher` → `/var/lib/rancher-local`
+
+Esto permite que containerd use overlay2 en vez de vfs.
+
+Ver [ADR-010: K3s Storage en Discos Locales](decisions/010-k3s-storage-on-nfs.md) para más detalles.
+
+### Verificación
+```bash
+# Verificar symlink de k3s
+ls -la /var/lib/rancher
+# Debe ser symlink a /var/lib/rancher-local o /mnt/docker/rancher
+
+# Verificar que containerd usa overlay
+sudo crictl info | grep -i overlay
+```
+
+---
+
 ## Troubleshooting
 
 ### Docker sigue usando vfs

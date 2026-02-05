@@ -73,6 +73,7 @@ Sin esta configuración, Flannel puede elegir la interfaz incorrecta y los pods 
 | Pods | 10.42.0.0/16 | Red interna de pods |
 | Services | 10.43.0.0/16 | ClusterIPs |
 | MetalLB | 10.0.0.50-60 | LoadBalancer IPs |
+| DHCP | 10.0.0.100-200 | Clientes DHCP |
 
 ### Flannel (CNI)
 

@@ -48,24 +48,26 @@ Esto permite gestionar los nodos de forma centralizada y facilita la recuperaci�
 
 ## Arquitectura
 ```
-Internet
+Internet (CGNAT)
     │
     ▼
   Modem (192.168.100.x)
     │
-    │   ┌──────────────────────────────────────────────┐
-    │   │              RED HOMELAB                     │
-    │   │                                              │
-    └───┼── [USB] RPi Gateway [eth0] ─── Switch ───┬── RPi 2 (netboot)
-        │        WAN DHCP     │ 10.0.0.1           ├── RPi 3 (netboot)
-        │                     │                    └── 10.0.0.x
-        │   ┌─────────────────┘
-        │   │ WireGuard VPN
-        │   │ 10.0.1.0/24
-        │   │
-        └───┼─────────────────────────────────────────┘
-            │
-     Mac ───┘ (10.0.1.2 via VPN)
+    │ [USB-ETH] enx00e04c683da2
+    │
+    ▼
+  rp1-master (Gateway + k3s Control Plane)
+  192.168.100.x WAN / 10.0.0.1 LAN
+    │
+    │ [eth0] LAN 10.0.0.0/24
+    │
+    ▼
+  Switch TP-Link SG105PE (10.0.0.5)
+    │
+    ├── rp2-node (10.0.0.2) - Netboot, k3s worker, microSD 32GB
+    └── rp3-node (10.0.0.3) - Netboot, k3s worker, SSD 240GB
+
+  Acceso remoto: Tailscale VPN (100.x.x.x, mesh, bypasses CGNAT)
 ```
 
 ## Dispositivos
@@ -83,7 +85,11 @@ Internet
 |-----|-------|-----------|
 | WAN (Modem) | 192.168.100.0/24 | Red del modem (DHCP) |
 | LAN Homelab | 10.0.0.0/24 | Red interna segmentada |
-| VPN | 10.0.1.0/24 | Acceso remoto via WireGuard |
+| Pods (k8s) | 10.42.0.0/16 | Red interna de pods |
+| Services (k8s) | 10.43.0.0/16 | ClusterIPs |
+| MetalLB | 10.0.0.50-60 | LoadBalancer IPs |
+| DHCP | 10.0.0.100-200 | Clientes DHCP |
+| Tailscale | 100.x.x.x | VPN mesh (bypasses CGNAT) |
 
 ## Requisitos
 
@@ -438,6 +444,7 @@ Ver [docs/decisions/](../docs/decisions/) para ADRs completos.
 | 009 | [Workaround para CGNAT](../docs/decisions/009-cgnat-workaround.md) |
 | 010 | [k3s storage en NFS](../docs/decisions/010-k3s-storage-on-nfs.md) |
 | 011 | [MetalLB](../docs/decisions/011-metallb.md) |
+| 012 | [K3s sobre Kubernetes Vanilla](../docs/decisions/012-k3s-over-k8s.md) |
 
 ## Lecciones aprendidas
 

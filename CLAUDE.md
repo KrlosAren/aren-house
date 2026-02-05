@@ -224,7 +224,7 @@ homelab-ansible/
 ├── observability.md
 ├── ssh-authentication.md
 ├── tailscale-setup.md
-├── decisions/        # ADRs (001-011)
+├── decisions/        # ADRs (001-012)
 ├── concepts/         # Teoría (15 archivos)
 ├── guides/           # How-to (5 archivos)
 └── runbooks/         # Operaciones (disaster-recovery, maintenance)
@@ -301,7 +301,8 @@ docs/
 │   ├── 008-tailscale-cgnat.md
 │   ├── 009-cgnat-workaround.md
 │   ├── 010-k3s-storage-on-nfs.md
-│   └── 011-metallb.md
+│   ├── 011-metallb.md
+│   └── 012-k3s-over-k8s.md
 ├── concepts/                  # Teoría y conceptos
 │   ├── dhcp.md, dns.md, nat.md, nfs.md, pxe.md, tftp.md
 │   ├── ip-forwarding.md, iptables-basics.md, ufw.md
@@ -331,6 +332,10 @@ El proyecto ha evolucionado a través del tiempo. Cada decisión está documenta
 1. **NFS puro** → Docker usaba driver `vfs` sobre NFS (lento)
 2. **Storage local** (2025-12) → microSD/SSD local para Docker con overlay2, symlink strategy (ADR-007)
 3. **k3s storage local** (2026-01) → Mismo principio para containerd/k3s: `/var/lib/rancher` → `/var/lib/rancher-local` (ADR-010)
+
+### Evolución de Orquestación
+1. **Docker standalone** (2025-12) → Contenedores en cada nodo, sin orquestación
+2. **k3s** (2026-01) → Cluster Kubernetes con k3s por menor consumo de recursos en ARM, binario único, componentes incluidos (ADR-012)
 
 ### Evolución de Networking k8s
 1. **NodePort** → Servicios k8s expuestos en puertos altos (30000+)

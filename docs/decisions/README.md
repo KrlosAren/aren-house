@@ -39,3 +39,6 @@ Cada ADR sigue esta estructura:
 | 007 | [Docker Storage: overlay2 en disco local](007-docker-storage-overlay.md) | Aceptado | 2025-12-15 |
 | 008 | [Tailscale vs WireGuard (CGNAT)](008-tailscale-cgnat.md) | Aceptado | 2025-12-15 |
 | 009 | [Workaround para CGNAT](009-cgnat-workaround.md) | Aceptado | 2025-12-15 |
+| 010 | [K3s Storage en Discos Locales](010-k3s-storage-on-nfs.md) | Aceptado | 2026-01-23 |
+| 011 | [MetalLB para LoadBalancer](011-metallb.md) | Aceptado | 2026-01-31 |
+| 012 | [K3s sobre Kubernetes Vanilla](012-k3s-over-k8s.md) | Aceptado | 2026-01-23 |

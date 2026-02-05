@@ -5,25 +5,26 @@ Mi homelab personal - documentación y configuración de toda la infraestructura
 ## Arquitectura General
 
 ```
-Internet
+Internet (CGNAT)
     │
     ▼
   Modem (192.168.100.x)
     │
-    │   ┌──────────────────────────────────────────────┐
-    │   │              RED HOMELAB                     │
-    │   │                                              │
-    └───┼── [USB] RPi Gateway [eth0] ─── Switch ───┬── RPi 2 (netboot)
-        │        WAN DHCP     │ 10.0.0.1           ├── RPi 3 (netboot)
-        │                     │                    └── (expansión)
-        │                     │                         10.0.0.x
-        │   ┌─────────────────┘
-        │   │ WireGuard VPN
-        │   │ 10.0.1.0/24
-        │   │
-        └───┼─────────────────────────────────────────┘
-            │
-     Mac ───┘ (10.0.1.2 via VPN)
+    │ [USB-ETH] enx00e04c683da2
+    │
+    ▼
+  rp1-master (Gateway + k3s Control Plane)
+  192.168.100.x WAN / 10.0.0.1 LAN
+    │
+    │ [eth0] LAN 10.0.0.0/24
+    │
+    ▼
+  Switch TP-Link SG105PE (10.0.0.5)
+    │
+    ├── rp2-node (10.0.0.2) - Netboot, k3s worker, microSD 32GB
+    └── rp3-node (10.0.0.3) - Netboot, k3s worker, SSD 240GB
+
+  Acceso remoto: Tailscale VPN (100.x.x.x, mesh, bypasses CGNAT)
 ```
 
 ## Componentes
@@ -47,25 +48,35 @@ Internet
 |-----|-------|-----------|
 | WAN (Modem) | 192.168.100.0/24 | Red del modem (DHCP) |
 | LAN Homelab | 10.0.0.0/24 | Red interna segmentada |
-| VPN | 10.0.1.0/24 | Acceso remoto via WireGuard |
+| Pods (k8s) | 10.42.0.0/16 | Red interna de pods |
+| Services (k8s) | 10.43.0.0/16 | ClusterIPs |
+| MetalLB | 10.0.0.50-60 | LoadBalancer IPs |
+| DHCP | 10.0.0.100-200 | Clientes DHCP |
+| Tailscale | 100.x.x.x | VPN mesh (bypasses CGNAT) |
 
 ## Estado Actual
 
 ### Implementado
 - [x] Gateway/Router con Raspberry Pi
 - [x] Segmentación de red (homelab separado de red principal)
-- [x] VPN con WireGuard para acceso remoto
 - [x] Automatización con Ansible
 - [x] DHCP/DNS/TFTP con dnsmasq
-- [x] DNS local (.homelab.local)
+- [x] DNS local (.homelab.local, .k8s.homelab.local)
 - [x] Netboot (PXE/NFS) para nodos rp2 y rp3
 - [x] NAT/IP forwarding para salida a internet
+- [x] Firewall (UFW) con reglas entre redes
+- [x] Docker en nodos con storage local (overlay2)
+- [x] Tailscale VPN (reemplazó WireGuard por CGNAT)
+- [x] DuckDNS para DNS dinámico
+- [x] k3s cluster (3 nodos)
+- [x] MetalLB para LoadBalancer (10.0.0.50-60)
+- [x] Monitoreo con Prometheus/Grafana/node_exporter
 
 ### Por hacer
-- [ ] Firewall (ufw) con reglas entre redes
-- [ ] Docker en nodos
-- [ ] k3s cluster
-- [ ] Monitoreo con Prometheus/Grafana
+- [ ] Observability en k8s (migrar Prometheus/Grafana/Loki al cluster)
+- [ ] Longhorn (storage distribuido)
+- [ ] Cert-Manager (certificados TLS)
+- [ ] Alertmanager
 
 ## Inicio Rápido
 
@@ -105,3 +116,6 @@ Para más detalles, ver la documentación de cada componente.
 - [007 - Docker storage Overlay](docs/decisions/007-docker-storage-overlay.md)
 - [008 - Tailscale CGNAT](docs/decisions/008-tailscale-cgnat.md)
 - [009 - CGNAT Workaround](docs/decisions/009-cgnat-workaround.md)
+- [010 - K3s Storage en Discos Locales](docs/decisions/010-k3s-storage-on-nfs.md)
+- [011 - MetalLB para LoadBalancer](docs/decisions/011-metallb.md)
+- [012 - K3s sobre Kubernetes Vanilla](docs/decisions/012-k3s-over-k8s.md)

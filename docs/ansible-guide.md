@@ -677,7 +677,7 @@ all:
 |------|-------------------|---------|
 | `dnsmasq` | `gateway.yml` | DHCP, DNS (.homelab.local), TFTP |
 | `nfs` | `gateway.yml` | NFS server para netboot |
-| `wireguard` | `gateway.yml` | VPN server (legacy, reemplazado por Tailscale) |
+| `wireguard` | `gateway.yml` | VPN server (legacy, reemplazado por Tailscale - ADR-008) |
 
 ## Buenas Prácticas
 
