@@ -21,7 +21,7 @@ Usar una **Raspberry Pi con dos interfaces de red** como gateway/router entre la
 
 ```
 Modem ──[USB-Ethernet]── RPi Gateway ──[eth0]── Switch TP-Link SG105PE ──┬── RPi 2 (PoE)
-192.168.100.x            192.168.100.18          │                       ├── RPi 3 (PoE)
+192.168.100.x            192.168.1.89            │                       ├── RPi 3 (PoE)
                          10.0.0.1                │                       └── (expansión)
                                                  │                           10.0.0.x
                                                  │

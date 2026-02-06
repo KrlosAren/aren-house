@@ -653,7 +653,7 @@ all:
     gateway:
       hosts:
         rp1-master:
-          ansible_host: 192.168.100.18  # WAN IP
+          ansible_host: 192.168.1.89  # WAN IP
           ansible_user: admin
           ansible_python_interpreter: /usr/bin/python3
     nodes:
