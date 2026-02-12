@@ -18,6 +18,9 @@
     vpn_network: "10.0.1.0/24"
     wan_interface: "enx00e04c683da2"
     lan_interface: "eth0"
+    gateway_ip: "10.0.0.1"
+    k3s_pod_cidr: "10.42.0.0/16"
+    k3s_service_cidr: "10.43.0.0/16"
 
   tasks:
     # ========================================
@@ -143,6 +146,30 @@
         comment: "HTTPS"
       tags: web
 
+    - name: permitir todo desde Pods k3s
+      ufw:
+        rule: allow
+        from_ip: "{{ k3s_pod_cidr }}"
+        comment: "Todo desde Pods k3s"
+      tags: k3s
+    
+    - name: permitir k3s API desde VPN
+      ufw:
+        rule: allow
+        port: "6443"
+        proto: tcp
+        from_ip: "{{ vpn_network }}"
+        comment: "k3s API desde VPN"
+      tags: k3s
+
+
+    - name: permitir todo desde services k3s
+      ufw:
+        rule: allow
+        from_ip: "{{ k3s_service_cidr }}"
+        comment: "Todo desde services CIDR k3s"
+      tags: k3s
+
     # =======================================
     # SEGUNDO: Politicas por defecto
     # =======================================
@@ -207,6 +234,8 @@
     lan_network: "10.0.0.0/24"
     vpn_network: "10.0.1.0/24"
     gateway_ip: "10.0.0.1"
+    k3s_pod_cidr: "10.42.0.0/16"
+    k3s_service_cidr: "10.43.0.0/16"
 
   tasks:
     - name: instalar ufw
@@ -223,56 +252,23 @@
       changed_when: true
       tags: reset
 
-    # ======================================
-    # PRIMERO: reglas de allow
-    # ======================================
-    - name: permitir todo desde gateway (NFS boot)
-      ufw:
-        rule: allow
-        from_ip: "{{ gateway_ip }}"
-        comment: "Todo desde gateway"
-      tags: gateway
-
-    - name: permitir SSH desde LAN
-      ufw:
-        rule: allow
-        port: "22"
-        proto: tcp
-        from_ip: "{{ lan_network }}"
-        comment: "SSH desde LAN"
-      tags: ssh
-
-    - name: permitir SSH desde VPN
-      ufw:
-        rule: allow
-        port: "22"
-        proto: tcp
-        from_ip: "{{ vpn_network }}"
-        comment: "SSH desde VPN"
-      tags: ssh
-
-    # ======================================
-    # SEGUNDO: Politicas por defecto
-    # ======================================
-    - name: configurar politica por defecto - denegar entrada
-      ufw:
-        direction: incoming
-        policy: deny
-      tags: policy
-
-    - name: configurar politica por defecto - permitir salida
-      ufw:
-        direction: outgoing
-        policy: allow
-      tags: policy
-
-    # ======================================
-    # TERCERO: habilitar firewall
-    # ======================================
-    - name: habilitar ufw
-      ufw:
-        state: enabled
-      tags: enable
+    - name: resetear y configurar ufw atómicamente
+      shell: |
+        ufw --force disable
+        ufw --force reset
+        ufw allow from {{ lan_network }} to any port 22 proto tcp comment "SSH LAN"
+        ufw allow from {{ vpn_network }} to any port 22 proto tcp comment "SSH VPN"
+        ufw allow from {{ gateway_ip }} comment "Todo desde gateway"
+        ufw allow from {{ lan_network }} comment "LAN nodos k3s"
+        ufw allow from {{ k3s_pod_cidr }} comment "k3s pods CIDR"
+        ufw allow from {{ k3s_service_cidr }} comment "k3s services CIDR"
+        ufw default deny incoming
+        ufw default allow outgoing
+        ufw --force enable
+      async: 30
+      poll: 5
+      changed_when: true
+      tags: firewall
 
     - name: obtener estado del firewall
       command: ufw status verbose

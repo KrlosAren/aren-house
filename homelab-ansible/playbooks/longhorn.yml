@@ -1,0 +1,59 @@
+---
+# Playbook: longhorn.yml
+# Propósito: Instalar dependencias de Longhorn en el cluster k3s
+#
+# Uso:
+#   ansible-playbook playbooks/longhorn.yml
+#   ansible-playbook playbooks/longhorn.yml --limit rp3-node
+- name: Instalar dependencias de Longhorn en el cluster k3s
+  hosts: all
+  become: true
+
+  vars:
+    longhorn_packages:
+      - open-iscsi
+      - nfs-common
+      - util-linux
+      - cryptsetup
+
+  tasks:
+    - name: Instalar paquetes requeridos por Longhorn
+      apt:
+        name: "{{ longhorn_packages }}"
+        state: present
+        update_cache: true
+      tags: longhorn
+
+    - name: Configurar InitiatorName consistente
+      copy:
+        content: "InitiatorName=iqn.2025-02.local.homelab:{{ inventory_hostname }}\n"
+        dest: /etc/iscsi/initiatorname.iscsi
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Reiniciar iscsid
+      tags: longhorn
+
+    - name: Validar contenido de initiatorname.iscsi
+      command: cat /etc/iscsi/initiatorname.iscsi
+      register: iscsi_content
+      changed_when: false
+      tags: longhorn
+
+    - name: Mostrar InitiatorName
+      debug:
+        msg: "{{ iscsi_content.stdout }}"
+      tags: longhorn
+
+    - name: Asegurar que iscsid está habilitado y corriendo
+      service:
+        name: iscsid
+        state: started
+        enabled: true
+      tags: longhorn
+
+  handlers:
+    - name: Reiniciar iscsid
+      service:
+        name: iscsid
+        state: restarted
