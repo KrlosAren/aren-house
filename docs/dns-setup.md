@@ -7,7 +7,7 @@
                         ▼
               ┌─────────────────┐
               │  Modem/Router   │
-              │  192.168.100.1  │
+              │  192.168.1.89.1  │
               │  (DNS público)  │
               └────────┬────────┘
                        │
@@ -62,7 +62,7 @@ local=/homelab.local/
 
 ### Problema
 
-macOS usa el DNS del modem (192.168.100.1) por defecto, que no conoce `.homelab.local`.
+macOS usa el DNS del modem (192.168.1.89.1) por defecto, que no conoce `.homelab.local`.
 
 ### Solución
 

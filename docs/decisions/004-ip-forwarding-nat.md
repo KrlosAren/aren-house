@@ -8,7 +8,7 @@ Aceptado
 
 El gateway (rp1-master) necesita enrutar tráfico entre múltiples redes:
 
-- **LAN Homelab** (10.0.0.0/24) → Internet (via modem 192.168.100.x)
+- **LAN Homelab** (10.0.0.0/24) → Internet (via modem 192.168.1.89.x)
 - **VPN** (10.0.1.0/24) → LAN Homelab (10.0.0.0/24)
 - **VPN** (10.0.1.0/24) → Internet
 

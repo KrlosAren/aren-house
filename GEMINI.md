@@ -9,12 +9,12 @@ Homelab with 3 Raspberry Pi 5 configured for network boot (PXE/NFS). One Pi acts
 ## Architecture
 
 ```
-Internet → Modem (192.168.100.x)
+Internet → Modem (192.168.1.89.x)
               │
          [USB-ETH] enx00e04c683da2
               │
          rp1-master (Gateway)
-         192.168.100.x WAN / 10.0.0.1 LAN
+         192.168.1.89.x WAN / 10.0.0.1 LAN
               │
          [eth0]
               │
@@ -40,7 +40,7 @@ WireGuard VPN: 10.0.1.0/24 (legacy, requires port forwarding)
 
 | Network | Range | Interface | Purpose |
 |---------|-------|-----------|---------|
-| WAN | 192.168.100.x | enx00e04c683da2 | DHCP from modem |
+| WAN | 192.168.1.89.x | enx00e04c683da2 | DHCP from modem |
 | LAN Homelab | 10.0.0.0/24 | eth0 | Internal segmented network |
 | Tailscale | 100.x.x.x | tailscale0 | Remote access (recommended, bypasses CGNAT) |
 | WireGuard | 10.0.1.0/24 | wg0 | Legacy VPN (requires port forwarding) |

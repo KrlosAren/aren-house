@@ -1,132 +1,126 @@
 # Stack de Observabilidad
 
-## Arquitectura
+## Estado actual
+
+La observabilidad está en proceso de migración de Docker a Kubernetes (k3s). El objetivo es consolidar todos los servicios de monitoreo dentro del cluster.
+
+| Componente | Estado | Ubicación |
+|------------|--------|-----------|
+| Prometheus | Migrado a k8s | `k8s-apps/monitoring-stack/` |
+| Grafana | Pendiente migrar | Docker en rp2-node (`stacks/observability/`) |
+| node_exporter | Activo (systemd) | Todos los nodos |
+| Loki | Pendiente | - |
+| Alertmanager | Pendiente | - |
+
+## Arquitectura actual
+
 ```
-┌─────────────────────────────────────────────────────┐
-│                     rp2-node                        │
-│                                                     │
-│  ┌─────────────┐         ┌─────────────┐           │
-│  │ Prometheus  │────────►│   Grafana   │           │
-│  │   :9090     │         │    :3000    │           │
-│  └──────┬──────┘         └─────────────┘           │
-│         │                                          │
-│         │ scrape cada 15s                          │
-└─────────┼──────────────────────────────────────────┘
-          │
-          ├──────────────┬──────────────┐
-          ▼              ▼              ▼
-    ┌───────────┐  ┌───────────┐  ┌───────────┐
-    │rp1-master │  │ rp2-node  │  │ rp3-node  │
-    │node_export│  │node_export│  │node_export│
-    │  :9100    │  │  :9100    │  │  :9100    │
-    └───────────┘  └───────────┘  └───────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    Kubernetes (k3s)                          │
+│                                                              │
+│  ┌─────────────────┐                                        │
+│  │ Prometheus (k8s) │  ← namespace: monitoring               │
+│  │ rp3-node (SSD)   │  ← nodeSelector: rp3-node             │
+│  │ Retención: 15d    │  ← PVC: local-path                    │
+│  └────────┬──────────┘                                       │
+│           │ scrape via kubernetes_sd_configs                  │
+│           │                                                  │
+│           ├── kubernetes-apiservers (API server)             │
+│           ├── kubernetes-nodes (kubelet)                     │
+│           ├── kubernetes-cadvisor (contenedores)             │
+│           └── kubernetes-pods (auto-discovery)               │
+│                                                              │
+│  Acceso: prometheus.k8s.homelab.local (via Ingress)          │
+└──────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                    Docker (legacy)                            │
+│                                                              │
+│  ┌─────────────┐         ┌─────────────┐                    │
+│  │   Grafana   │────────►│ Prometheus  │ (Docker, legacy)    │
+│  │   :3000     │         │   :9090     │                     │
+│  └─────────────┘         └─────────────┘                     │
+│  Ubicación: stacks/observability/ en rp2-node                │
+└──────────────────────────────────────────────────────────────┘
+
+┌───────────┐  ┌───────────┐  ┌───────────┐
+│rp1-master │  │ rp2-node  │  │ rp3-node  │
+│node_export│  │node_export│  │node_export│
+│  :9100    │  │  :9100    │  │  :9100    │
+└───────────┘  └───────────┘  └───────────┘
 ```
 
 ---
 
-## Componentes
+## Prometheus en Kubernetes
 
-| Componente | Función | Puerto | Ubicación |
-|------------|---------|--------|-----------|
-| Prometheus | Recolecta y almacena métricas | 9090 | rp2-node |
-| Grafana | Visualización y dashboards | 3000 | rp2-node |
-| node_exporter | Expone métricas del sistema | 9100 | Todos los nodos |
+Prometheus corre como Deployment en el namespace `monitoring`, forzado al nodo `rp3-node` (SSD 240GB) para buen rendimiento de I/O.
 
----
+### Manifiestos
 
-## Despliegue
+Los manifiestos están en `k8s-apps/monitoring-stack/` y se aplican en orden numérico:
 
-### Stack principal (Prometheus + Grafana)
+| Archivo | Recurso | Descripción |
+|---------|---------|-------------|
+| `00-namespace.yml` | Namespace | Crea `monitoring` |
+| `01-prometheus-rbac.yml` | ServiceAccount, ClusterRole, ClusterRoleBinding | Permisos para descubrir pods/nodos |
+| `02-prometheus-config.yml` | ConfigMap | Configuración de scrape jobs |
+| `03-prometheus-pvc.yml` | PersistentVolumeClaim | Storage para datos (local-path) |
+| `04-prometheus-deployment.yml` | Deployment | Pod de Prometheus |
+| `05-prometheus-service.yml` | Service | Expone Prometheus en el cluster |
+| `06-prometheus-ingress.yml` | Ingress | Acceso via `prometheus.k8s.homelab.local` |
 
-Ubicación: `~/stacks/observability/` en rp2-node
+### Desplegar / Actualizar
+
 ```bash
-# Desplegar
-cd ~/stacks/observability
-docker compose up -d
+# Aplicar todos los manifiestos
+kubectl apply -f k8s-apps/monitoring-stack/
+
+# Ver estado
+kubectl get all -n monitoring
 
 # Ver logs
-docker compose logs -f
-
-# Detener
-docker compose down
+kubectl logs -l app=prometheus -n monitoring -f
 ```
 
-### node_exporter (todos los nodos)
+### Scrape jobs configurados
+
+| Job | Descubre via | Qué monitorea |
+|-----|-------------|---------------|
+| `kubernetes-apiservers` | endpoints | API server de k3s |
+| `kubernetes-nodes` | node | Métricas de kubelet por nodo |
+| `kubernetes-cadvisor` | node (/metrics/cadvisor) | Métricas de contenedores |
+| `kubernetes-pods` | pod (annotation `prometheus.io/scrape: "true"`) | Auto-discovery de pods |
+
+### Acceso
+
+| Servicio | URL |
+|----------|-----|
+| Prometheus (k8s) | http://prometheus.k8s.homelab.local |
+
+---
+
+## node_exporter
+
+Instalado como servicio systemd en todos los nodos via Ansible.
+
+### Despliegue
 ```bash
 ansible-playbook playbooks/node-exporter.yml
 ```
 
----
-
-## Acceso
-
-| Servicio | URL | Credenciales |
-|----------|-----|--------------|
-| Prometheus | http://10.0.0.2:9090 | - |
-| Grafana | http://10.0.0.2:3000 | admin / (cambiar al primer login) |
-
-> **Seguridad:** Cambia la contraseña por defecto de Grafana (`admin/admin`) en el primer login. Ve a Profile → Change Password. Aunque el servicio solo es accesible desde la LAN/VPN, mantener contraseñas por defecto es un riesgo innecesario.
-
----
-
-## Configuración de Prometheus
-
-Archivo: `~/stacks/observability/prometheus/prometheus.yml`
-```yaml
-global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
-
-scrape_configs:
-  - job_name: 'prometheus'
-    static_configs:
-      - targets: ['localhost:9090']
-
-  - job_name: 'node_exporter'
-    static_configs:
-      - targets:
-          - '10.0.0.1:9100'  # Gateway
-          - '10.0.0.2:9100'  # rp2
-          - '10.0.0.3:9100'  # rp3
-```
-
-### Agregar nuevos targets
-
-1. Editar `prometheus/prometheus.yml`
-2. Agregar target en `static_configs`
-3. Reiniciar Prometheus:
+### Verificar
 ```bash
-   docker compose restart prometheus
+# Verificar que está corriendo
+systemctl status node_exporter
+
+# Verificar métricas
+curl http://10.0.0.1:9100/metrics
+curl http://10.0.0.2:9100/metrics
+curl http://10.0.0.3:9100/metrics
 ```
 
----
-
-## Configuración de Grafana
-
-### Agregar Prometheus como datasource
-
-1. Ir a Configuration → Data Sources
-2. Add data source → Prometheus
-3. URL: `http://prometheus:9090`
-4. Save & Test
-
-### Dashboards recomendados
-
-| Dashboard | ID | Descripción |
-|-----------|-----|-------------|
-| Node Exporter Full | 1860 | Métricas completas del sistema |
-| Docker | 893 | Métricas de contenedores |
-
-Para importar:
-1. Ir a Dashboards → Import
-2. Ingresar ID
-3. Seleccionar datasource Prometheus
-
----
-
-## Métricas Disponibles
-
-### node_exporter
+### Métricas principales
 
 | Métrica | Descripción |
 |---------|-------------|
@@ -152,6 +146,32 @@ Para importar:
 # Tráfico de red
 rate(node_network_receive_bytes_total[5m])
 ```
+
+---
+
+## Grafana (Docker - pendiente migrar)
+
+Actualmente Grafana sigue corriendo en Docker en rp2-node.
+
+### Ubicación
+```
+stacks/observability/docker-compose.yml
+```
+
+### Acceso
+
+| Servicio | URL | Credenciales |
+|----------|-----|--------------|
+| Grafana | http://10.0.0.2:3000 | admin / (cambiar al primer login) |
+
+### Dashboards recomendados
+
+| Dashboard | ID | Descripción |
+|-----------|-----|-------------|
+| Node Exporter Full | 1860 | Métricas completas del sistema |
+| Docker | 893 | Métricas de contenedores |
+
+Para importar: Dashboards > Import > Ingresar ID > Seleccionar datasource Prometheus.
 
 ---
 
@@ -188,56 +208,42 @@ groups:
 
 ## Troubleshooting
 
-### Prometheus no puede conectar a node_exporter
+### Prometheus no puede conectar a targets
+
 ```bash
-# Verificar que node_exporter está corriendo
-systemctl status node_exporter
+# Ver targets y su estado
+# Abrir http://prometheus.k8s.homelab.local/targets
 
-# Verificar puerto
-curl http://10.0.0.1:9100/metrics
+# Ver logs del pod
+kubectl logs -l app=prometheus -n monitoring
 
-# Verificar firewall
-sudo ufw status | grep 9100
+# Verificar RBAC
+kubectl get clusterrolebinding prometheus -o yaml
 ```
+
+### Prometheus no tiene datos
+
+1. Verificar que el pod está running: `kubectl get pods -n monitoring`
+2. Verificar PVC: `kubectl get pvc -n monitoring`
+3. Verificar targets en la UI de Prometheus
 
 ### Grafana no muestra datos
 
-1. Verificar datasource en Grafana
-2. Verificar que Prometheus tiene datos:
-```
-   http://10.0.0.2:9090/targets
-```
+1. Verificar datasource en Grafana (debe apuntar a Prometheus)
+2. Verificar que Prometheus tiene datos en sus targets
 3. Verificar queries en panel
 
 ---
 
-## Métricas de k3s
+## Plan de migración
 
-El cluster k3s está desplegado y expone métricas que se pueden agregar a Prometheus:
+### Completado
+- [x] Prometheus migrado a k8s con service discovery nativo
+- [x] Ingress configurado para acceso via `prometheus.k8s.homelab.local`
 
-```yaml
-# Agregar a prometheus.yml para monitorear k3s
-scrape_configs:
-  - job_name: 'kubernetes-nodes'
-    static_configs:
-      - targets:
-          - '10.0.0.1:10250'  # kubelet rp1-master
-          - '10.0.0.2:10250'  # kubelet rp2-node
-          - '10.0.0.3:10250'  # kubelet rp3-node
-
-  - job_name: 'kubernetes-api'
-    static_configs:
-      - targets: ['10.0.0.1:6443']
-    scheme: https
-    tls_config:
-      insecure_skip_verify: true
-    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
-```
-
-### Pendientes de observabilidad
-
-- [ ] Migrar Prometheus/Grafana al cluster k3s
+### Pendiente
+- [ ] Migrar Grafana al cluster k8s
 - [ ] Agregar Loki para logs centralizados
 - [ ] Configurar Alertmanager con notificaciones
 - [ ] Dashboard específico de k3s (pods, deployments, services)
-- [ ] Retención de métricas (actualmente sin límite)
+- [ ] Configurar retención de métricas adecuada

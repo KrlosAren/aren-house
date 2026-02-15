@@ -112,7 +112,7 @@ kubectl get nodes -o wide
 # Pods del sistema (todos deberían estar Running)
 kubectl get pods -n kube-system
 
-# Verificar Flannel IPs (deben ser 10.0.0.x, NO 192.168.100.x)
+# Verificar Flannel IPs (deben ser 10.0.0.x, NO 192.168.1.89.x)
 kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.flannel\.alpha\.coreos\.com/public-ip}{"\n"}{end}'
 
 # Verificar MetalLB
@@ -135,9 +135,9 @@ flannel-iface: eth0
 
 rp1-master tiene dos interfaces de red:
 - `eth0`: 10.0.0.1 (red interna LAN)
-- `enx00e04c683da2`: 192.168.100.x (USB ethernet a internet)
+- `enx00e04c683da2`: 192.168.1.89.x (USB ethernet a internet)
 
-Sin esta configuración, Flannel puede elegir la interfaz USB y anunciar la IP WAN. Los pods entre nodos no podrían comunicarse porque los workers no tienen acceso a 192.168.100.x.
+Sin esta configuración, Flannel puede elegir la interfaz USB y anunciar la IP WAN. Los pods entre nodos no podrían comunicarse porque los workers no tienen acceso a 192.168.1.89.x.
 
 ### Storage local (evitar NFS)
 
@@ -370,7 +370,7 @@ kubectl port-forward -n kube-system svc/traefik 9000:9000
 # Verificar IPs que anuncia cada nodo (deben ser 10.0.0.x)
 kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.flannel\.alpha\.coreos\.com/public-ip}{"\n"}{end}'
 
-# Si rp1-master muestra 192.168.100.x → Flannel eligió la interfaz incorrecta
+# Si rp1-master muestra 192.168.1.89.x → Flannel eligió la interfaz incorrecta
 ```
 
 **Solución:**

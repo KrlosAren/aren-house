@@ -51,13 +51,13 @@ Esto permite gestionar los nodos de forma centralizada y facilita la recuperaci�
 Internet (CGNAT)
     │
     ▼
-  Modem (192.168.100.x)
+  Modem (192.168.1.89.x)
     │
     │ [USB-ETH] enx00e04c683da2
     │
     ▼
   rp1-master (Gateway + k3s Control Plane)
-  192.168.100.x WAN / 10.0.0.1 LAN
+  192.168.1.89.x WAN / 10.0.0.1 LAN
     │
     │ [eth0] LAN 10.0.0.0/24
     │
@@ -74,16 +74,16 @@ Internet (CGNAT)
 
 | Dispositivo | IP | MAC | Rol |
 |-------------|-----|-----|-----|
-| rp1-master | 10.0.0.1 | 2c:cf:67:a9:b8:51 | Gateway, DHCP, DNS, TFTP, NFS |
-| rp2 | 10.0.0.2 | 2c:cf:67:88:9e:f5 | Nodo worker (netboot) |
-| rp3 | 10.0.0.3 | 2c:cf:67:a9:b9:13 | Nodo worker (netboot) |
+| rp1-master | 10.0.0.1 | 2c:cf:67:a9:b8:51 | Gateway, DHCP, DNS, TFTP, NFS, k3s master |
+| rp2-node | 10.0.0.2 | 2c:cf:67:88:9e:f5 | k3s worker (netboot) |
+| rp3-node | 10.0.0.3 | 2c:cf:67:a9:b9:13 | k3s worker (netboot) |
 | switch | 10.0.0.5 | ec:75:0c:ff:fc:d6 | TP-Link SG105PE |
 
 ## Redes
 
 | Red | Rango | Propósito |
 |-----|-------|-----------|
-| WAN (Modem) | 192.168.100.0/24 | Red del modem (DHCP) |
+| WAN (Modem) | 192.168.1.89.0/24 | Red del modem (DHCP) |
 | LAN Homelab | 10.0.0.0/24 | Red interna segmentada |
 | Pods (k8s) | 10.42.0.0/16 | Red interna de pods |
 | Services (k8s) | 10.43.0.0/16 | ClusterIPs |
@@ -158,7 +158,7 @@ Reiniciar SSH:
 sudo systemctl restart sshd
 ```
 
-> **⚠️ Importante:** Antes de cerrar la sesión actual, abre otra terminal y verifica que puedes entrar con la clave. Si algo falla, aún tienes la sesión abierta para corregir.
+> **Importante:** Antes de cerrar la sesión actual, abre otra terminal y verifica que puedes entrar con la clave. Si algo falla, aún tienes la sesión abierta para corregir.
 
 ### 6. Verificar que todo funciona
 ```bash
@@ -211,6 +211,33 @@ homelab-ansible/
         ├── handlers/main.yml
         └── tasks/main.yml
 ```
+
+## Playbooks
+
+| Playbook | Función | Objetivo |
+|----------|---------|----------|
+| `gateway.yml` | Configuración completa de rp1-master | gateway |
+| `common.yml` | Config base del sistema (timezone, NTP, locales, paquetes) | all |
+| `k3s.yml` | Instalar k3s server y agents con Tailscale forwarding | all |
+| `metallb.yml` | Instalar y configurar MetalLB (pool 10.0.0.50-60) | master |
+| `firewall.yml` | Configurar UFW en gateway y nodos | all |
+| `docker.yml` | Instalar Docker con storage driver vfs para NFS boot | nodes |
+| `local-storage.yml` | Configurar y montar discos locales en nodos | nodes |
+| `setup-netboot-server.yml` | Preparar estructura NFS y TFTP para netboot | gateway |
+| `prepare-node.yml` | Preparar nodo para netboot | nodes |
+| `setup-ssh.yml` | Distribuir claves SSH del gateway a los nodos | nodes |
+| `wireguard.yml` | Instalar y configurar WireGuard VPN | gateway |
+| `tailscale.yml` | Instalar y configurar Tailscale VPN mesh | all |
+| `duckdns.yml` | Configurar DuckDNS para actualización de IP pública | gateway |
+| `node-exporter.yml` | Instalar Prometheus node_exporter en todos los hosts | all |
+| `registry.yml` | Configurar registry privado local para Docker/containerd | gateway |
+| `install-basic-tools-nodes.yml` | Instalar herramientas básicas en nodos worker | nodes |
+| `update-nodes.yml` | Actualizar paquetes | nodes |
+| `update-kernel.yml` | Actualizar kernel en TFTP de nodos netboot | gateway + nodes |
+| `node-info.yml` | Info de nodos | all |
+| `reboot-nodes.yml` | Reinicio controlado | all |
+
+> Ver [docs/guides/playbook-usage.md](../docs/guides/playbook-usage.md) para documentación detallada de cada playbook.
 
 ## Configuración de Ansible
 
@@ -422,8 +449,9 @@ ping rp2.homelab.local
 - [x] DuckDNS (IP pública dinámica) - `playbooks/duckdns.yml`
 - [x] Node Exporter (métricas) - `playbooks/node-exporter.yml`
 - [x] Registry privado - `playbooks/registry.yml`
-- [ ] Observability en k8s (Prometheus, Grafana, Loki)
-- [ ] Longhorn (storage distribuido)
+- [x] Prometheus en k8s - `k8s-apps/monitoring-stack/`
+- [ ] Grafana en k8s
+- [ ] Loki (logs centralizados)
 - [ ] Cert-Manager (certificados TLS)
 - [ ] Alerting (Alertmanager)
 

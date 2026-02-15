@@ -108,7 +108,7 @@ flannel-iface: eth0
 
 **¿Por qué?** rp1-master tiene múltiples interfaces de red:
 - `eth0`: 10.0.0.1 (red interna del cluster)
-- `enx00e04c683da2`: 192.168.100.x (USB ethernet a internet)
+- `enx00e04c683da2`: 192.168.1.89.x (USB ethernet a internet)
 
 Sin `flannel-iface: eth0`, Flannel puede elegir la interfaz incorrecta y los pods entre nodos no se comunican.
 

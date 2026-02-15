@@ -23,7 +23,7 @@
   vars:
     k3s_server_install_path: /usr/local/bin/k3s
     k3s_version: "" # Dejar vacío para latest, o especificar ej: "v1.28.5+k3s1"
-    k3s_local_storage: /var/lib/rancher-local
+    k3s_local_storage: /backup/k3s-data
 
   tasks:
     - name: "PASO 1: Verificar si cgroups ya están configurados"
@@ -80,7 +80,7 @@
         state: link
         force: yes
       when: not k3s_installed.stat.exists
-    
+
     - name: "PASO 8: Crear directorio de config de k3s"
       file:
         path: /etc/rancher/k3s
@@ -99,8 +99,13 @@
     - name: "PASO 9: Instalar k3s server"
       shell: |
         curl -sfL https://get.k3s.io | sh -s - server \
+          --data-dir "{{ k3s_local_storage }}" \
           --write-kubeconfig-mode 644 \
-          --disable servicelb
+          --disable servicelb \
+          --node-name {{ inventory_hostname }} \
+          --tls-san {{ ansible_host }} \
+          --tls-san {{ lan_ip }} \
+          --tls-san 192.168.1.89
       args:
         creates: "{{ k3s_server_install_path }}"
       environment:
@@ -170,13 +175,19 @@
     node_serials:
       rp2-node: "440dc91d"
       rp3-node: "02671e08"
-    k3s_server_ip: "{{ hostvars['rp1-master'].ansible_host }}"
-    k3s_local_storage: /var/lib/rancher-local
+    k3s_server_ip: "{{ hostvars['rp1-master'].lan_ip }}"
+    # Storage local por nodo - debe estar en disco local, NO en NFS
+    # rp2: microSD montada en /mnt/docker
+    # rp3: SSD montada en /mnt/docker
+    node_local_storage:
+      rp2-node: /mnt/docker/k3s-data
+      rp3-node: /mnt/docker/rancher
+    k3s_local_storage: "{{ node_local_storage[inventory_hostname] }}"
 
   tasks:
     - name: "PASO 1: Obtener el token de conexión del k3s server"
       slurp:
-        src: /var/lib/rancher/k3s/server/node-token
+        src: /backup/k3s-data/server/token
       register: k3s_token_raw
       delegate_to: rp1-master
 
@@ -241,6 +252,16 @@
         force: yes
       when: not k3s_agent_installed.stat.exists
 
+    - name: "PASO 8.5: Limpiar rastro de certificados antiguos (Evitar CA Hash mismatch)"
+      file:
+        path: "{{ item }}"
+        state: absent
+      with_items:
+        - "{{ k3s_local_storage }}/agent/tls"
+        - "{{ k3s_local_storage }}/agent/kubelet.kubeconfig"
+        - "{{ k3s_local_storage }}/agent/kube-proxy.kubeconfig"
+      when: not k3s_agent_installed.stat.exists
+    
     - name: "PASO 9: Instalar k3s agent"
       shell: curl -sfL https://get.k3s.io | sh -s - agent
       args:

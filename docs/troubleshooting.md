@@ -312,7 +312,7 @@ sudo systemctl restart <service>
 # Ver qué IP anuncia cada nodo
 kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.flannel\.alpha\.coreos\.com/public-ip}{"\n"}{end}'
 
-# Si rp1-master muestra 192.168.100.x en vez de 10.0.0.1, ese es el problema
+# Si rp1-master muestra 192.168.1.89.x en vez de 10.0.0.1, ese es el problema
 
 # Verificar FDB de Flannel
 ssh rp3-node "bridge fdb show dev flannel.1"

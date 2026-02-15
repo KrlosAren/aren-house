@@ -310,7 +310,7 @@ kubectl get pods -o wide
 
    [Peer]
    PublicKey = VIFt08+ZU2nQCnhXAOAMMS+ycH8d6PGLY+hcqZbXhAw=
-   Endpoint = 192.168.100.x:51820
+   Endpoint = 192.168.1.89.x:51820
    AllowedIPs = 10.0.0.0/24, 10.0.1.0/24
    ```
 

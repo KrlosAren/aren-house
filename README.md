@@ -8,13 +8,13 @@ Mi homelab personal - documentación y configuración de toda la infraestructura
 Internet (CGNAT)
     │
     ▼
-  Modem (192.168.100.x)
+  Modem (192.168.1.89.x)
     │
     │ [USB-ETH] enx00e04c683da2
     │
     ▼
   rp1-master (Gateway + k3s Control Plane)
-  192.168.100.x WAN / 10.0.0.1 LAN
+  192.168.1.89.x WAN / 10.0.0.1 LAN
     │
     │ [eth0] LAN 10.0.0.0/24
     │
@@ -32,6 +32,8 @@ Internet (CGNAT)
 | Componente | Descripción | Documentación |
 |------------|-------------|---------------|
 | **Ansible** | Automatización y configuración de infraestructura | [homelab-ansible/README.md](homelab-ansible/README.md) |
+| **k8s-apps** | Manifiestos de Kubernetes para el cluster k3s | [k8s-apps/README.md](k8s-apps/README.md) |
+| **stacks** | Docker Compose stacks (en migración a k8s) | - |
 
 ## Hardware
 
@@ -46,7 +48,7 @@ Internet (CGNAT)
 
 | Red | Rango | Propósito |
 |-----|-------|-----------|
-| WAN (Modem) | 192.168.100.0/24 | Red del modem (DHCP) |
+| WAN (Modem) | 192.168.1.89.0/24 | Red del modem (DHCP) |
 | LAN Homelab | 10.0.0.0/24 | Red interna segmentada |
 | Pods (k8s) | 10.42.0.0/16 | Red interna de pods |
 | Services (k8s) | 10.43.0.0/16 | ClusterIPs |
@@ -71,12 +73,14 @@ Internet (CGNAT)
 - [x] k3s cluster (3 nodos)
 - [x] MetalLB para LoadBalancer (10.0.0.50-60)
 - [x] Monitoreo con Prometheus/Grafana/node_exporter
+- [x] Prometheus migrado a k8s (`k8s-apps/monitoring-stack/`)
 
 ### Por hacer
-- [ ] Observability en k8s (migrar Prometheus/Grafana/Loki al cluster)
-- [ ] Longhorn (storage distribuido)
+- [ ] Grafana en k8s
+- [ ] Loki (logs centralizados)
 - [ ] Cert-Manager (certificados TLS)
 - [ ] Alertmanager
+- [ ] Migrar stacks Docker restantes al cluster
 
 ## Inicio Rápido
 
@@ -102,8 +106,10 @@ Para más detalles, ver la documentación de cada componente.
 | **Decisiones** | [docs/decisions/](docs/decisions/) | ADRs - Por qué elegí cada tecnología |
 | **Conceptos** | [docs/concepts/](docs/concepts/) | Teoría: DHCP, DNS, PXE, NAT, NFS, etc. |
 | **Guías** | [docs/guides/](docs/guides/) | How-to: playbooks, firewall, troubleshooting |
+| **Referencia** | [docs/reference/](docs/reference/) | Referencia rápida: IPs, puertos, comandos |
 | **Runbooks** | [docs/runbooks/](docs/runbooks/) | Procedimientos: disaster-recovery, maintenance |
 | **Ansible** | [homelab-ansible/README.md](homelab-ansible/README.md) | Automatización de infraestructura |
+| **k8s-apps** | [k8s-apps/README.md](k8s-apps/README.md) | Aplicaciones Kubernetes |
 
 ### Decisiones Arquitectónicas (ADRs)
 

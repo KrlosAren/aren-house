@@ -173,7 +173,7 @@ ansible-playbook playbooks/gateway.yml
 
 1. **Verificar SSH al gateway**
    ```bash
-   ssh admin@192.168.100.x  # IP del modem
+   ssh admin@192.168.1.89.x  # IP del modem
    ```
 
 2. **Arreglar manualmente y luego Ansible**

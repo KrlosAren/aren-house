@@ -8,7 +8,7 @@
                                   │
                          ┌────────┴────────┐
                          │     Modem       │
-                         │  192.168.100.1  │
+                         │  192.168.1.89.1  │
                          └────────┬────────┘
                                   │
                                   │ 192.168.1.89
@@ -79,7 +79,7 @@
 
 | Red | Rango | Propósito |
 |-----|-------|-----------|
-| WAN | 192.168.100.0/24 | Conexión al modem/internet |
+| WAN | 192.168.1.89.0/24 | Conexión al modem/internet |
 | LAN | 10.0.0.0/24 | Red interna del homelab |
 | VPN | 10.0.1.0/24 | Clientes Tailscale |
 | Tailscale | 100.x.x.x | Mesh VPN |
