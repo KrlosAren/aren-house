@@ -1,15 +1,18 @@
 ---
 # playbook: registry.yml
-# description: Configura Docker para usar un registry local privado.
+# description: Configura Docker y containerd (k3s) para usar el registry privado.
+#
+# El registry corre como pod en k3s, expuesto via Traefik en HTTP.
+# - Docker: se marca como insecure-registry para permitir push/pull HTTP
+# - containerd (k3s): se configura como mirror para pull HTTP
 #
 # Uso: ansible-playbook playbooks/registry.yml
-- name: Configura Docker para usar un registry local privado
+- name: Configurar Docker para usar registry privado
   hosts: all
   become: yes
 
   vars:
-    registry_host: "registry.homelab.local"
-    registry_ip: "10.0.0.1"
+    registry_host: "registry.k8s.homelab.local"
 
   tasks:
     - name: "verificar si docker esta instalado"
@@ -24,7 +27,7 @@
         content: |
           {
             "storage-driver": "overlay2",
-            "insecure-registries": ["{{ registry_host }}", "{{ registry_ip }}:5000"]
+            "insecure-registries": ["{{ registry_host }}"]
           }
         dest: /etc/docker/daemon.json
         mode: "0644"
@@ -33,16 +36,9 @@
         - Restart Docker
       tags: docker
 
-    - name: "verificar configuracion"
-      command: docker info
-      register: docker_info
-      changed_when: false
-      when: docker_check.rc == 0
-      tags: docker
-
     - name: "mostrar configuracion de docker"
       debug:
-        msg: "Registry configurado: {{ registry_host }} y {{ registry_ip }}:5000"
+        msg: "Docker configurado con insecure-registry: {{ registry_host }}"
       when: docker_check.rc == 0
       tags: docker
 
@@ -52,12 +48,12 @@
         name: docker
         state: restarted
 
-- name: Configurar containerd de k3s para usar registry local privado
+- name: Configurar containerd de k3s para usar registry privado
   hosts: all
   become: yes
 
   vars:
-    registry_host: "registry.homelab.local"
+    registry_host: "registry.k8s.homelab.local"
 
   tasks:
     - name: "verificar si k3s esta instalado"
