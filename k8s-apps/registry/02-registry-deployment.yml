@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  namespace: registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: registry
+  template:
+    metadata:
+      labels:
+        app: registry
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: rp3-node
+      containers:
+        - name: registry
+          image: registry:2.8.1
+          env:
+            - name: "REGISTRY_STORAGE_DELETE_ENABLED"
+              value: "true"
+            - name: "REGISTRY_HTTP_SECRET"
+              value: "ATMJVDRJhnRIjxukMnyd//ScJ5qF8GmIiCfe3P2CUow="
+            - name: REGISTRY_HTTP_HEADERS_Access-Control-Allow-Methods
+              value: '["HEAD","GET","OPTIONS","DELETE"]'
+            - name: REGISTRY_HTTP_HEADERS_Access-Control-Allow-Headers
+              value: '["Authorization","Accept","Cache-Control"]'
+            - name: REGISTRY_HTTP_HEADERS_Access-Control-Expose-Headers
+              value: '["Docker-Content-Digest"]'
+            - name: REGISTRY_HTTP_HEADERS_Access-Control-Allow-Origin
+              value: '["http://registry-ui.k8s.homelab.local"]'
+          ports:
+            - containerPort: 5000
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          volumeMounts:
+            - name: registry-data
+              mountPath: /var/lib/registry
+      volumes:
+        - name: registry-data
+          persistentVolumeClaim:
+            claimName: registry-data
