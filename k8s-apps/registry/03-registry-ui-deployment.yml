@@ -20,7 +20,7 @@ spec:
             - name: REGISTRY_TITLE
               value: "KrlosAren Registry"
             - name: REGISTRY_URL
-              value: "http://registry.registry.svc.cluster.local:5000"
+              value: "http://registry.k8s.homelab.local"
             - name: DELETE_IMAGES
               value: "true"
             - name: SINGLE_REGISTRY

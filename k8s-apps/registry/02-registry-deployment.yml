@@ -22,7 +22,10 @@ spec:
             - name: "REGISTRY_STORAGE_DELETE_ENABLED"
               value: "true"
             - name: "REGISTRY_HTTP_SECRET"
-              value: "ATMJVDRJhnRIjxukMnyd//ScJ5qF8GmIiCfe3P2CUow="
+              valueFrom:
+                secretKeyRef:
+                  name: registry-secret
+                  key: REGISTRY_HTTP_SECRET
             - name: REGISTRY_HTTP_HEADERS_Access-Control-Allow-Methods
               value: '["HEAD","GET","OPTIONS","DELETE"]'
             - name: REGISTRY_HTTP_HEADERS_Access-Control-Allow-Headers
