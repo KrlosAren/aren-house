@@ -13,5 +13,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: build and push
         run: |
-          docker build -t registry.k8s.homelab.local/test-app:${{ github.sha }} /apps/test-app/
+          docker build -t registry.k8s.homelab.local/test-app:${{ github.sha }} ./apps/test-app/
           docker push registry.k8s.homelab.local/test-app:${{ github.sha }}
