@@ -19,15 +19,15 @@ jobs:
         with:
           filters: |
             test-app:
-              - 'apps/test-app/**'
+              - './apps/test-app**'
 
   build-test-app:
     needs: detect-changes
-    # if: ${{needs.detect-changes.outputs.apps.test-app == 'true'}}
+    if: ${{needs.detect-changes.outputs.test-app == 'true'}}
     runs-on: [self-hosted, homelab]
     steps:
       - uses: actions/checkout@v4
       - name: build and push
         run: |
-          docker build -t registr.k8s.homelab.local/test-app:${{github.sha }} /apps/test-app/
-          docker push register.k8s.homelab.local/test-app:${{ github.sha }}
+          docker build -t registry.k8s.homelab.local/test-app:${{ github.sha }} /apps/test-app/
+          docker push registry.k8s.homelab.local/test-app:${{ github.sha }}
