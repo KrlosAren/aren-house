@@ -56,3 +56,5 @@ venv/
 
 
 .sops/age-key.txt
+
+**/**/node_modules/**
