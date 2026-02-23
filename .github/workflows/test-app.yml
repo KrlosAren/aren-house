@@ -7,23 +7,7 @@ on:
       - "apps/test-app/**"
 
 jobs:
-  detect-changes:
-    runs-on: [self-hosted,homelab]
-    outputs:
-      apps: ${{ steps.changes.outputs.apps }}
-    
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v2
-        id: changes
-        with:
-          filters: |
-            test-app:
-              - './apps/test-app**'
-
   build-test-app:
-    needs: detect-changes
-    if: ${{needs.detect-changes.outputs.test-app == 'true'}}
     runs-on: [self-hosted, homelab]
     steps:
       - uses: actions/checkout@v4
