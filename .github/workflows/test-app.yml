@@ -23,7 +23,7 @@ jobs:
 
   build-test-app:
     needs: detect-changes
-    if: ${{needs.detect-changes.outputs.apps.test-app == 'true'}}
+    # if: ${{needs.detect-changes.outputs.apps.test-app == 'true'}}
     runs-on: [self-hosted, homelab]
     steps:
       - uses: actions/checkout@v4
