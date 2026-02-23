@@ -3,9 +3,12 @@
 # Managed by Ansible - Do not edit manually
 # ===========================================
 
-# Interfaz - solo escuchar en la red interna
+# Interfaces - escuchar en LAN y WAN (solo DNS en WAN, DHCP solo en LAN)
 interface={{ dnsmasq_interface }}
-bind-interfaces
+interface={{ dnsmasq_wan_interface }}
+listen-address=127.0.0.1
+bind-dynamic
+no-dhcp-interface={{ dnsmasq_wan_interface }}
 
 # No usar /etc/resolv.conf del sistema
 no-resolv
@@ -19,7 +22,7 @@ server={{ server }}
 domain={{ dnsmasq_domain }}
 local=/{{ dnsmasq_domain }}/
 address=/.{{ dnsmasq_domain }}/{{ dnsmasq_network.gateway }}
-address=/.k8s.{{ dnsmasq_domain }}/{{ dnsmasq_network.k3s_gateway }}
+address=/.k8s.{{ dnsmasq_domain }}/{{ dnsmasq_network.wan_ip }}
 
 # ----- DHCP -----
 dhcp-range={{ dnsmasq_network.range_start }},{{ dnsmasq_network.range_end }},{{ dnsmasq_network.lease_time }}

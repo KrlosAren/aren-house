@@ -15,7 +15,7 @@ k3s es una distribución ligera de Kubernetes, ideal para entornos con recursos 
 │  - CoreDNS, Traefik (Ingress Controller)                    │
 │                                                              │
 │  Config: /etc/rancher/k3s/config.yaml                       │
-│  Storage: /var/lib/rancher → /var/lib/rancher-local (SSD)   │
+│  Storage: /var/lib/rancher → /backup/k3s-data (SSD)         │
 └──────────────────────────┬───────────────────────────────────┘
                            │
             ┌──────────────┴──────────────┐
@@ -74,7 +74,7 @@ El playbook ejecuta estos pasos:
 
 1. **En rp1-master (server):**
    - Habilita cgroups de memoria en el kernel (`cgroup_memory=1 cgroup_enable=memory`)
-   - Crea symlink `/var/lib/rancher` → `/var/lib/rancher-local` (evita NFS, usa SSD local)
+   - Crea symlink `/var/lib/rancher` → disco local (evita NFS, usa SSD/microSD local)
    - Crea `/etc/rancher/k3s/config.yaml` con `flannel-iface: eth0`
    - Instala k3s server con `--disable servicelb` (MetalLB lo reemplaza)
    - Configura reglas iptables FORWARD para Tailscale
@@ -83,7 +83,7 @@ El playbook ejecuta estos pasos:
 2. **En rp2-node y rp3-node (agents):**
    - Obtiene el token de conexión del server
    - Habilita cgroups en el cmdline.txt de TFTP (nodos netboot)
-   - Crea symlink `/var/lib/rancher` → `/var/lib/rancher-local` (usa disco local)
+   - Crea symlink `/var/lib/rancher` → disco local (microSD en rp2, SSD en rp3)
    - Instala k3s agent con `K3S_URL` y `K3S_TOKEN`
 
 3. **Verificación:**
@@ -144,7 +144,9 @@ Sin esta configuración, Flannel puede elegir la interfaz USB y anunciar la IP W
 containerd (el runtime de k3s) no funciona con overlay2 sobre NFS. Por eso, `/var/lib/rancher` se redirige a disco local en cada nodo:
 
 ```
-/var/lib/rancher  →  symlink  →  /var/lib/rancher-local (disco local)
+rp1-master: /var/lib/rancher → /backup/k3s-data        (SSD 500GB)
+rp2-node:   /var/lib/rancher → /mnt/docker/k3s-data    (microSD 32GB)
+rp3-node:   /var/lib/rancher → /mnt/docker/rancher      (SSD 240GB)
 ```
 
 Ver [ADR-010: K3s Storage on Local Disks](../decisions/010-k3s-storage-on-nfs.md).
@@ -201,14 +203,14 @@ kubectl config use-context default
 ### Dominios
 
 ```
-*.homelab.local      → 10.0.0.1   (Traefik Docker, servicios fuera de k8s)
-*.k8s.homelab.local  → 10.0.0.50  (Traefik k3s via MetalLB)
+*.homelab.local      → 10.0.0.1      (Traefik Docker, servicios fuera de k8s)
+*.k8s.homelab.local  → 192.168.1.89  (DNAT → MetalLB 10.0.0.50 → Traefik k3s)
 ```
 
 ### Flujo de tráfico
 
 ```
-Cliente → DNS (dnsmasq) → 10.0.0.50 → MetalLB (ARP) → Traefik k3s → Ingress → Service → Pod
+Cliente → DNS (dnsmasq) → 192.168.1.89 → DNAT → 10.0.0.50 → MetalLB → Traefik k3s → Ingress → Service → Pod
 ```
 
 ### Exponer una aplicación

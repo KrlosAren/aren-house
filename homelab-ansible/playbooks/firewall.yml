@@ -15,6 +15,7 @@
 
   vars:
     lan_network: "10.0.0.0/24"
+    wan_network: "192.168.1.0/24"
     vpn_network: "10.0.1.0/24"
     wan_interface: "enx00e04c683da2"
     lan_interface: "eth0"
@@ -35,9 +36,17 @@
     # ======================================
     # RESETEAR UFW (evita bloqueos si ya estaba habilitado)
     # ======================================
+    - name: verificar si ufw existe antes de resetear
+      command: which ufw
+      register: ufw_exists
+      failed_when: false
+      changed_when: false
+      tags: reset
+
     - name: resetear ufw para evitar bloqueos
       command: ufw --force reset
       changed_when: true
+      when: ufw_exists.rc == 0
       tags: reset
 
     # ======================================
@@ -111,6 +120,14 @@
         comment: "DNS desde VPN"
       tags: dns
 
+    - name: permitir DNS desde WAN
+      ufw:
+        rule: allow
+        port: "53"
+        from_ip: "{{ wan_network }}"
+        comment: "DNS desde WAN (resolver k8s.homelab.local)"
+      tags: dns
+
     - name: permitir NFS desde VPN
       ufw:
         rule: allow
@@ -162,6 +179,14 @@
         comment: "k3s API desde VPN"
       tags: k3s
 
+    - name: permitir k3s API desde WAN
+      ufw:
+        rule: allow
+        port: "6443"
+        proto: tcp
+        from_ip: "{{ wan_network }}"
+        comment: "k3s API desde WAN"
+      tags: k3s
 
     - name: permitir todo desde services k3s
       ufw:
@@ -195,6 +220,25 @@
         line: 'DEFAULT_FORWARD_POLICY="ACCEPT"'
       tags: forward
       notify: Reload ufw
+
+    # ===================================================
+    # DNAT: redirigir WAN HTTP/HTTPS hacia MetalLB (Traefik k3s)
+    # Se inyectan reglas NAT en /etc/ufw/before.rules
+    # ===================================================
+    - name: DNAT - agregar reglas NAT en before.rules
+      blockinfile:
+        path: /etc/ufw/before.rules
+        insertbefore: "^\\*filter"
+        marker: "# {mark} DNAT METALLB TRAEFIK K3S"
+        block: |
+          *nat
+          :PREROUTING ACCEPT [0:0]
+          # WAN -> MetalLB (Traefik k3s)
+          -A PREROUTING -i {{ wan_interface }} -p tcp --dport 80 -j DNAT --to-destination 10.0.0.50:80
+          -A PREROUTING -i {{ wan_interface }} -p tcp --dport 443 -j DNAT --to-destination 10.0.0.50:443
+          COMMIT
+      notify: Reload ufw
+      tags: dnat
 
     # ===================================================
     # TERCERO: habilitar firewall

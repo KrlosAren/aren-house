@@ -45,7 +45,7 @@ Internet
             ├── WireGuard (51820) ✅ Abierto (necesario para VPN)
             ├── SSH (22) ......... ✅ Rate-limited desde WAN
             ├── HTTP/S (80/443) .. ✅ Abierto (servicios web)
-            ├── DNS (53) ......... ❌ Solo LAN/VPN
+            ├── DNS (53) ......... ✅ LAN/VPN/WAN
             ├── NFS (2049) ....... ❌ Solo LAN/VPN
             └── DHCP (67-68) ..... ❌ Solo LAN
 ```
@@ -147,14 +147,14 @@ Routed: ALLOW (permitir NAT)
 | 22/tcp | TCP | SSH | LAN, VPN | Administración remota |
 | 22/tcp | TCP | SSH | WAN (limit) | Acceso emergencia, rate-limited contra brute force |
 | 51820/udp | UDP | WireGuard | Anywhere | VPN debe ser accesible desde internet |
-| 53 | TCP/UDP | DNS | LAN, VPN | Resolución de nombres local |
+| 53 | TCP/UDP | DNS | LAN, VPN, WAN | Resolución de nombres (incluyendo `*.k8s.homelab.local` desde WAN) |
 | 67-68/udp | UDP | DHCP | LAN (broadcast) | Asignación de IPs a nodos |
 | 69/udp | UDP | TFTP | LAN (broadcast) | Netboot de Raspberry Pi |
 | 80/tcp | TCP | HTTP | Anywhere | Servicios web (Traefik) |
 | 443/tcp | TCP | HTTPS | Anywhere | Servicios web (Traefik) |
 | 111/tcp | TCP/UDP | RPC | LAN, VPN | Portmapper para NFS |
 | 2049/tcp | TCP/UDP | NFS | LAN, VPN | Filesystem de red |
-| 6443/tcp | TCP | k3s API | LAN, Tailscale | kubectl se conecta aquí |
+| 6443/tcp | TCP | k3s API | LAN, Tailscale, WAN | kubectl se conecta aquí |
 | 8472/udp | UDP | Flannel VXLAN | LAN | Comunicación entre pods de distintos nodos |
 | 9100/tcp | TCP | node_exporter | LAN | Métricas de Prometheus |
 | 10250/tcp | TCP | kubelet | LAN | Métricas y logs de pods |
@@ -287,6 +287,11 @@ En Ansible, esto significa crear las reglas de `allow` ANTES de configurar las p
                     │  │  FIREWALL │  │
                     │  │   (ufw)   │  │
                     │  └───────────┘  │
+                    │                 │
+                    │  HTTP/S → DNAT  │
+                    │  → 10.0.0.50   │
+                    │  (MetalLB/     │
+                    │   Traefik k3s) │
                     └────────┬────────┘
                              │
                        eth0 (LAN)
@@ -315,6 +320,14 @@ En Ansible, esto significa crear las reglas de `allow` ANTES de configurar las p
                     - DNS
                     - NFS
                     - kubectl (6443)
+
+              Clientes WAN (192.168.1.x)
+                          │
+                          ▼
+                    Acceso a:
+                    - DNS (53) → resolver *.k8s.homelab.local
+                    - HTTP/S → DNAT → MetalLB (Traefik k3s)
+                    - k3s API (6443)
 ```
 
 ---
@@ -332,12 +345,36 @@ net/ipv4/ip_forward=1
 
 Editar `/etc/ufw/before.rules`, agregar al inicio (antes de `*filter`):
 ```bash
-# NAT para red interna
+# NAT para red interna + DNAT para servicios k8s
 *nat
+:PREROUTING ACCEPT [0:0]
 :POSTROUTING ACCEPT [0:0]
+# Nodos acceden a internet
 -A POSTROUTING -s 10.0.0.0/24 -o enx00e04c683da2 -j MASQUERADE
+# WAN HTTP/HTTPS → MetalLB (Traefik k3s)
+-A PREROUTING -i enx00e04c683da2 -p tcp --dport 80 -j DNAT --to-destination 10.0.0.50:80
+-A PREROUTING -i enx00e04c683da2 -p tcp --dport 443 -j DNAT --to-destination 10.0.0.50:443
 COMMIT
 ```
+
+### DNAT: Acceso WAN a servicios k8s
+
+Las reglas DNAT redirigen tráfico HTTP/HTTPS que llega por la interfaz WAN hacia MetalLB (Traefik k3s):
+
+```
+Cliente WAN (192.168.1.x)
+       │
+       │ http://app.k8s.homelab.local
+       ▼
+  enx00e04c683da2 (192.168.1.89)
+       │
+       │ DNAT: --dport 80 → 10.0.0.50:80
+       │ DNAT: --dport 443 → 10.0.0.50:443
+       ▼
+  MetalLB → Traefik k3s → Ingress → Service → Pod
+```
+
+Esto permite que equipos en la red del modem (192.168.1.0/24) accedan a servicios k8s sin necesidad de Tailscale. El playbook `firewall.yml` inyecta estas reglas automáticamente en `/etc/ufw/before.rules`.
 
 ### Reglas básicas
 ```bash

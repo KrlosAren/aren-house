@@ -43,7 +43,7 @@ Referencia rápida de todas las IPs y rangos del homelab.
 | Dominio | Resuelve a | Propósito |
 |---------|------------|-----------|
 | *.homelab.local | 10.0.0.1 | Servicios Docker (Traefik Docker) |
-| *.k8s.homelab.local | 10.0.0.50 | Servicios k8s (Traefik k3s via MetalLB) |
+| *.k8s.homelab.local | 192.168.1.89 | Servicios k8s (DNAT → MetalLB 10.0.0.50 → Traefik k3s) |
 | rp1-master.homelab.local | 10.0.0.1 | Gateway |
 | rp2-node.homelab.local | 10.0.0.2 | Worker 2 |
 | rp3-node.homelab.local | 10.0.0.3 | Worker 3 |

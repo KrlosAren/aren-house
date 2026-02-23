@@ -235,6 +235,8 @@ homelab-ansible/
 | `update-nodes.yml` | Actualizar paquetes | nodes |
 | `update-kernel.yml` | Actualizar kernel en TFTP de nodos netboot | gateway + nodes |
 | `node-info.yml` | Info de nodos | all |
+| `longhorn.yml` | Instalar Longhorn storage distribuido | all |
+| `longhorn-storage.yml` | Preparar discos para Longhorn | nodes |
 | `reboot-nodes.yml` | Reinicio controlado | all |
 
 > Ver [docs/guides/playbook-usage.md](../docs/guides/playbook-usage.md) para documentación detallada de cada playbook.

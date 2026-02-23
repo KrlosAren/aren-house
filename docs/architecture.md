@@ -40,8 +40,8 @@
 │  Docker: microSD local      │ │  Docker: SSD local          │
 │                             │ │  Storage: SSD 240GB         │
 │  ┌─────────┐ ┌───────────┐  │ │                             │
-│  │ Docker  │ │ Prometheus│  │ │  ┌─────────┐                │
-│  │(overlay)│ │  Grafana  │  │ │  │ Docker  │                │
+│  │ Docker  │ │  Grafana  │  │ │  ┌─────────┐                │
+│  │(overlay)│ │ (Docker)  │  │ │  │ Docker  │                │
 │  └─────────┘ └───────────┘  │ │  │(overlay)│                │
 │                             │ │  └─────────┘                │
 │  Storage: microSD 29GB      │ │  Storage: SSD 240GB         │
@@ -88,20 +88,29 @@
 
 | Servicio | Puerto | Función |
 |----------|--------|---------|
-| dnsmasq | 53, 67-68 | DNS y DHCP |
+| dnsmasq | 53, 67-68 | DNS (LAN + WAN) y DHCP (solo LAN) |
 | NFS | 2049, 111 | Filesystem para netboot |
 | TFTP | 69 | Boot files para netboot |
 | Tailscale | - | VPN mesh |
 | DuckDNS | - | DNS dinámico |
+| Registry | 5000 | Docker registry privado |
 
 ### Servicios en Nodos
 
 | Servicio | Nodo | Puerto | Función |
 |----------|------|--------|---------|
 | Docker | rp2, rp3 | - | Contenedores |
-| Prometheus | rp2 | 9090 | Métricas |
-| Grafana | rp2 | 3000 | Dashboards |
+| Grafana | rp2 | 3000 | Dashboards (pendiente migrar a k8s) |
 | node_exporter | todos | 9100 | Métricas del sistema |
+
+### Servicios en k8s
+
+| Servicio | Namespace | Acceso | Función |
+|----------|-----------|--------|---------|
+| Prometheus | monitoring | prometheus.k8s.homelab.local | Métricas (migrado desde Docker) |
+| Registry | registry | registry.k8s.homelab.local | Registry privado de imágenes |
+| Registry UI | registry | registry-ui.k8s.homelab.local | UI web del registry |
+| Traefik | kube-system | 10.0.0.50 (MetalLB) | Ingress Controller |
 
 ---
 
@@ -171,45 +180,49 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                        dnsmasq                               │
 │                                                              │
-│  *.homelab.local      → 10.0.0.1   (Traefik Docker)         │
-│  *.k8s.homelab.local  → 10.0.0.50  (Traefik k3s/MetalLB)    │
+│  *.homelab.local      → 10.0.0.1      (Traefik Docker)       │
+│  *.k8s.homelab.local  → 192.168.1.89  (DNAT → MetalLB)      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### Flujo de Tráfico k8s
+
+#### Desde LAN (10.0.0.0/24) o Tailscale
 ```
-Cliente (Mac/LAN)
+Cliente → DNS (dnsmasq) → 192.168.1.89 → DNAT → 10.0.0.50 → MetalLB → Traefik k3s → Pod
+```
+
+#### Desde WAN (192.168.1.0/24)
+```
+Cliente WAN
        │
        │ http://app.k8s.homelab.local
        ▼
 ┌─────────────────────┐
-│  dnsmasq            │
+│  dnsmasq (WAN)      │
 │  Resuelve a         │
-│  10.0.0.50          │
+│  192.168.1.89       │
+└──────────┬──────────┘
+           ▼
+┌─────────────────────┐
+│  UFW (DNAT)         │
+│  :80 → 10.0.0.50   │
+│  :443 → 10.0.0.50  │
 └──────────┬──────────┘
            ▼
 ┌─────────────────────┐
 │  MetalLB            │
 │  Anuncia IP via ARP │
-│  Dirige al nodo     │
 └──────────┬──────────┘
            ▼
 ┌─────────────────────┐
 │  Traefik (k3s)      │
-│  LoadBalancer       │
-│  :80/:443           │
-│                     │
 │  Rutea por Host     │
 │  header al Ingress  │
 └──────────┬──────────┘
            ▼
 ┌─────────────────────┐
-│  Service            │
-│  (ClusterIP)        │
-└──────────┬──────────┘
-           ▼
-┌─────────────────────┐
-│  Pod                │
+│  Service → Pod      │
 └─────────────────────┘
 ```
 
@@ -300,12 +313,14 @@ node_exporter (todos los nodos)
     │ :9100/metrics
     │
     ▼
-Prometheus (rp2:9090)
+Prometheus (k8s - prometheus.k8s.homelab.local)
+    │  namespace: monitoring
+    │  k8s-apps/monitoring-stack/
     │
     │ scrape cada 15s
     │
     ▼
-Grafana (rp2:3000)
+Grafana (rp2:3000 - Docker, pendiente migrar a k8s)
     │
     │ queries
     │
@@ -342,9 +357,12 @@ Dashboards
 
 ### Kubernetes - Próximos pasos
 
+- [x] ~~**Prometheus en k8s**~~ (completado: `k8s-apps/monitoring-stack/`)
+- [x] ~~**Registry en k8s**~~ (completado: `k8s-apps/registry/`)
+- [ ] **Grafana en k8s**: Migrar desde Docker en rp2
 - [ ] **Longhorn**: Storage distribuido con replicación
 - [ ] **Cert-Manager**: Certificados TLS automáticos
-- [ ] **Observability en k8s**: Migrar Prometheus/Grafana/Loki al cluster
+- [ ] **Loki**: Logs centralizados
 - [ ] **Alertmanager**: Alertas
 
 ### Storage distribuido

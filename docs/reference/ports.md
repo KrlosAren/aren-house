@@ -7,15 +7,15 @@ Referencia rápida de todos los puertos usados en el homelab.
 | Puerto | Protocolo | Servicio | Acceso |
 |--------|-----------|----------|--------|
 | 22 | TCP | SSH | LAN, VPN, WAN (limit) |
-| 53 | TCP/UDP | DNS (dnsmasq) | LAN, VPN |
+| 53 | TCP/UDP | DNS (dnsmasq) | LAN, VPN, WAN |
 | 67-68 | UDP | DHCP (dnsmasq) | LAN |
 | 69 | UDP | TFTP (dnsmasq) | LAN |
-| 80 | TCP | HTTP (Traefik Docker) | Anywhere |
-| 443 | TCP | HTTPS (Traefik Docker) | Anywhere |
+| 80 | TCP | HTTP (DNAT → MetalLB/Traefik k3s) | Anywhere |
+| 443 | TCP | HTTPS (DNAT → MetalLB/Traefik k3s) | Anywhere |
 | 111 | TCP/UDP | RPC/portmapper (NFS) | LAN |
 | 2049 | TCP/UDP | NFS | LAN |
 | 5000 | TCP | Docker Registry | LAN |
-| 6443 | TCP | k3s API Server | LAN, Tailscale |
+| 6443 | TCP | k3s API Server | LAN, Tailscale, WAN |
 | 8472 | UDP | Flannel VXLAN | LAN |
 | 9100 | TCP | node_exporter (Prometheus) | LAN |
 | 10250 | TCP | kubelet | LAN |

@@ -149,7 +149,7 @@ Actualmente solo Traefik usa una IP de este pool (10.0.0.50). Las IPs 10.0.0.51-
 | `flannel-iface: eth0` | Manual | `/etc/rancher/k3s/config.yaml` |
 | `--disable servicelb` | Manual | Playbook `k3s.yml` (para usar MetalLB) |
 | Pool MetalLB `10.0.0.50-60` | Manual | `k8s-apps/metallb/metallb-config.yml` |
-| DNS `*.k8s.homelab.local → 10.0.0.50` | Manual | dnsmasq config |
+| DNS `*.k8s.homelab.local → 192.168.1.89` | Manual | dnsmasq config (DNAT → 10.0.0.50) |
 | Pod CIDR `10.42.0.0/16` | Automático | Default de k3s |
 | Service CIDR `10.43.0.0/16` | Automático | Default de k3s |
 | Flannel VXLAN | Automático | Incluido en k3s |
@@ -210,7 +210,12 @@ Cliente (Mac/LAN)
 ┌─────────────────────────┐
 │  dnsmasq                │
 │  *.k8s.homelab.local    │
-│  → 10.0.0.50            │
+│  → 192.168.1.89         │
+└───────────┬─────────────┘
+            ▼
+┌─────────────────────────┐
+│  UFW (DNAT)             │
+│  :80/:443 → 10.0.0.50  │
 └───────────┬─────────────┘
             ▼
 ┌─────────────────────────┐

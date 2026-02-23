@@ -1,0 +1,111 @@
+---
+# playbook : github-runner.yml
+# description: instala github actions self-hosted runner
+#
+# Uso : ansible-playbook playbooks/github-runner.yml -e "github_token=TU_TOKEN"
+#
+# obtener token:
+# github -> settings -> actions -> runners -> new self hosted runner
+#
+# variables requeridas
+# - github_token :  token del registro
+# - github_repo_url : url del repo u organizacion
+- name: instalar github actions runner
+  hosts: gateway
+  become: yes
+  vars:
+    runner_version: "2.331.0"
+    runner_user: "admin"
+    runner_dir: "/home/{{ runner_user }}/actions-runner"
+    runner_labels: "homelab,self-hosted,arm64"
+    github_repo_url: "https://github.com/KrlosAren/aren-house"
+
+  tasks:
+    - name: "verificar que github_token esta definido"
+      fail:
+        msg: "debes pasar el token github_token: -e 'github_token=TU_TOKEN'"
+      when: github_token is not defined
+
+    - name: "crear diretorio del runner"
+      file:
+        path: "{{ runner_dir }}"
+        state: directory
+        owner: "{{ runner_user }}"
+        group: "{{ runner_user }}"
+        mode: "0755"
+
+    - name: "verificar si runner ya esta instalado"
+      stat:
+        path: "{{ runner_dir }}/config.sh"
+      register: runner_installed
+
+    - name: "descargar github actions runner"
+      get_url:
+        url: "https://github.com/actions/runner/releases/download/v{{ runner_version }}/actions-runner-linux-arm64-{{ runner_version }}.tar.gz"
+        dest: "/tmp/actions-runner.tar.gz"
+        mode: "0644"
+      when: not runner_installed.stat.exists
+
+    - name: "Extraer runner"
+      unarchive:
+        src: "/tmp/actions-runner.tar.gz"
+        dest: "{{ runner_dir }}"
+        remote_src: yes
+        owner: "{{ runner_user }}"
+        group: "{{ runner_user }}"
+      when: not runner_installed.stat.exists
+
+    - name: "verificar si runner ya esta configurado"
+      stat:
+        path: "{{ runner_dir}}/.runner"
+      register: runner_configured
+
+    - name: "configurar runner"
+      become: no
+      shell: |
+        ./config.sh \
+        --url {{ github_repo_url }} \
+        --token {{ github_token }}
+        --labels {{ runner_labels }}
+        --name {{ ansible_hostname }}
+        --unattended
+        --replace
+      args:
+        chdir: "{{ runner_dir }}"
+      when: not runner_configured.stat.exists
+
+    - name: "instalar como servicio"
+      shell: "./svc.sh install {{ runner_user }}"
+      args:
+        chdir: "{{ runner_dir }}"
+        creates: "/etc/systemd/system/actions.runner.*.service"
+
+    - name: "iniciar servicio"
+      shell: "./svc.sh start"
+      args:
+        chdir: "{{ runner_dir }}"
+      register: svc_status
+      changed_when: false
+
+    - name: "verificar estado"
+      shell: "./svc.sh status"
+      args:
+        chdir: "{{ runner_dir }}"
+      register: svc_status
+      changed_when: false
+
+    - name: "estado del runner"
+      vars:
+        runner_status:
+          - "═══════════════════════════════════════════════════════════"
+          - "✅ GitHub Actions Runner instalado"
+          - "═══════════════════════════════════════════════════════════"
+          - "Directorio: {{ runner_dir }}"
+          - "Labels: {{ runner_labels }}"
+          - "Estado: {{ svc_status.stdout }}"
+          - ""
+          - "Verifica en GitHub:"
+          - "{{ github_repo_url }}/settings/actions/runners"
+          - "═══════════════════════════════════════════════════════════"
+      debug:
+        msg: "{{ runner_status}}"

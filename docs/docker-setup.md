@@ -1,60 +1,34 @@
 # Configuración de Docker en el Homelab
 
 ## Arquitectura
+
+### Estado actual: Storage local con overlay2
+
+Desde [ADR-007](decisions/007-docker-storage-overlay.md), Docker usa **discos locales** (microSD/SSD) con el driver `overlay2`, que es mucho más rápido que la configuración anterior sobre NFS.
+
 ```
-rp1-master (Gateway)
-    │
-    ├── /srv/nfs/rp2/var/lib/docker  ← Storage de Docker para rp2
-    └── /srv/nfs/rp3/var/lib/docker  ← Storage de Docker para rp3
-            │
-            │ NFS
-            │
-    ┌───────┴───────┐
-    │               │
-    ▼               ▼
-┌──────────┐  ┌──────────┐
-│   rp2    │  │   rp3    │
-│  Docker  │  │  Docker  │
-│  (vfs)   │  │  (vfs)   │
-└──────────┘  └──────────┘
+┌──────────┐                  ┌──────────┐
+│   rp2    │                  │   rp3    │
+│  Docker  │                  │  Docker  │
+│(overlay2)│                  │(overlay2)│
+│          │                  │          │
+│ microSD  │                  │  SSD     │
+│  32GB    │                  │  240GB   │
+└──────────┘                  └──────────┘
 ```
 
----
+El playbook `local-storage.yml` configura los discos locales y el playbook `docker.yml` instala Docker apuntando a ese storage.
 
-## ¿Por qué vfs en lugar de overlay?
+### Historia: Por qué se usaba vfs antes
 
-Docker usa **storage drivers** para gestionar las capas de imágenes y contenedores.
-
-### Storage drivers disponibles
+Originalmente, Docker almacenaba datos en NFS (`/srv/nfs/rpX/var/lib/docker`). El problema es que **overlayfs no funciona sobre NFS**, así que se usaba el driver `vfs` (copia completa de archivos, muy lento).
 
 | Driver | Descripción | Rendimiento | Soporta NFS |
 |--------|-------------|-------------|-------------|
-| overlay2 | Por defecto, usa overlayfs | Rápido | ❌ No |
-| vfs | Copia completa de archivos | Lento | ✅ Sí |
-| btrfs | Usa filesystem btrfs | Rápido | ❌ No |
-| zfs | Usa filesystem zfs | Rápido | ❌ No |
+| overlay2 | Por defecto, usa overlayfs | Rápido | No |
+| vfs | Copia completa de archivos | Lento | Sí |
 
-### El problema con NFS boot
-
-Los nodos (rp2, rp3) bootean por NFS. Su filesystem completo, incluyendo `/var/lib/docker`, está en el servidor NFS (rp1-master).
-```
-overlay2 sobre NFS:
-    │
-    ▼
-Error: "mount source overlay... invalid argument"
-```
-
-**overlayfs no puede montarse sobre NFS** porque NFS no soporta las operaciones de filesystem que overlay2 necesita.
-
-### La solución: vfs
-
-El driver `vfs` no usa overlayfs. En su lugar, copia los archivos completos para cada capa.
-```
-vfs sobre NFS:
-    │
-    ▼
-Funciona ✅ (pero más lento y usa más espacio)
-```
+La migración a storage local resolvió este problema permitiendo usar overlay2.
 
 ---
 
@@ -253,7 +227,7 @@ curl http://10.0.0.2
 
 ## Próximos pasos
 
-- [ ] Agregar SSD a nodos para mejor rendimiento
-- [ ] Configurar Docker registry privado
-- [ ] Instalar Portainer para gestión web
-- [ ] Migrar a k3s para orquestación
+- [x] ~~Agregar SSD a nodos para mejor rendimiento~~ (completado: ADR-007, `playbooks/local-storage.yml`)
+- [x] ~~Configurar Docker registry privado~~ (completado: `stacks/registry/` + `k8s-apps/registry/`)
+- [x] ~~Migrar a k3s para orquestación~~ (completado: ADR-012, `playbooks/k3s.yml`)
+- [ ] Migrar stacks Docker restantes a k8s (n8n, pihole, Grafana)

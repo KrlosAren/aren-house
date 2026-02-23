@@ -33,6 +33,27 @@
 /etc/dnsmasq.conf
 ```
 
+### Interfaces
+
+dnsmasq escucha en dos interfaces:
+
+```ini
+# LAN - DHCP + DNS
+interface=eth0
+
+# WAN - solo DNS (para resolver *.k8s.homelab.local desde la red del modem)
+interface=enx00e04c683da2
+no-dhcp-interface=enx00e04c683da2
+
+# También escucha en localhost
+listen-address=127.0.0.1
+
+# bind-dynamic permite escuchar en múltiples interfaces sin conflictos
+bind-dynamic
+```
+
+**¿Por qué dnsmasq en WAN?** Los clientes en la red del modem (192.168.1.0/24) necesitan resolver `*.k8s.homelab.local` para acceder a servicios k8s via DNAT. Sin esto, solo los clientes en la LAN (10.0.0.0/24) o VPN pueden resolver esos nombres.
+
 ### Tipos de registros
 
 #### Para clientes DHCP (rp2, rp3)
@@ -138,20 +159,38 @@ host-record=nombre,nombre.homelab.local,IP
 El homelab usa dos dominios DNS con propósitos diferentes:
 
 ```
-*.homelab.local      → 10.0.0.1   (servicios Docker en rp1-master, via Traefik Docker)
-*.k8s.homelab.local  → 10.0.0.50  (servicios k8s, via Traefik k3s + MetalLB)
+*.homelab.local      → 10.0.0.1      (servicios Docker en rp1-master, via Traefik Docker)
+*.k8s.homelab.local  → 192.168.1.89  (servicios k8s, via DNAT → MetalLB 10.0.0.50)
 ```
+
+**¿Por qué la IP WAN (192.168.1.89) y no la de MetalLB (10.0.0.50)?**
+
+Los clientes en la red WAN (192.168.1.0/24) no tienen ruta directa a 10.0.0.50. El tráfico llega a la IP WAN del gateway, donde reglas DNAT en el firewall redirigen HTTP/HTTPS a MetalLB:
+
+```
+Cliente WAN → 192.168.1.89:80 → DNAT → 10.0.0.50:80 (MetalLB/Traefik k3s)
+```
+
+Para clientes en la LAN (10.0.0.0/24) o Tailscale, la resolución también funciona porque el gateway tiene la IP 192.168.1.89 en su interfaz WAN.
 
 ### Cómo se configura
 
-El playbook `metallb.yml` agrega automáticamente la entrada de k8s en dnsmasq:
+La entrada DNS de k8s se define en el role de dnsmasq (`roles/dnsmasq/templates/dnsmasq.conf.j2`):
 
 ```ini
-# En /etc/dnsmasq.conf (agregado por metallb.yml)
-address=/.k8s.homelab.local/10.0.0.50
+address=/.k8s.homelab.local/192.168.1.89
 ```
 
-Esto hace que cualquier subdominio de `k8s.homelab.local` resuelva a la IP de MetalLB donde escucha Traefik k3s.
+Las reglas DNAT en el firewall (`playbooks/firewall.yml`) redirigen el tráfico:
+
+```
+# En /etc/ufw/before.rules
+*nat
+:PREROUTING ACCEPT [0:0]
+-A PREROUTING -i enx00e04c683da2 -p tcp --dport 80 -j DNAT --to-destination 10.0.0.50:80
+-A PREROUTING -i enx00e04c683da2 -p tcp --dport 443 -j DNAT --to-destination 10.0.0.50:443
+COMMIT
+```
 
 ### CoreDNS (DNS interno del cluster)
 
@@ -191,5 +230,6 @@ MagicDNS solo resuelve dispositivos con Tailscale instalado. Los nodos rp2 y rp3
 | `nslookup` funciona pero `ssh nombre` no | macOS no usa el DNS correcto | Crear `/etc/resolver/homelab.local` |
 | Nombre no resuelve | dnsmasq no tiene el registro | Verificar `/etc/dnsmasq.conf` |
 | DNS lento | Servidor upstream no responde | Verificar `dnsmasq_dns_servers` |
-| `*.k8s.homelab.local` no resuelve | Entrada faltante en dnsmasq | Ejecutar `playbooks/metallb.yml` o agregar manualmente `address=/.k8s.homelab.local/10.0.0.50` |
+| `*.k8s.homelab.local` no resuelve | Entrada faltante en dnsmasq | Verificar `address=/.k8s.homelab.local/192.168.1.89` en dnsmasq.conf |
+| `*.k8s.homelab.local` resuelve pero no conecta desde WAN | DNAT no configurado | Verificar reglas NAT en `/etc/ufw/before.rules` y ejecutar `playbooks/firewall.yml` |
 | Pod no resuelve DNS externo | CoreDNS no puede reenviar | Verificar que dnsmasq acepta queries desde la red de pods (10.42.0.0/16) |

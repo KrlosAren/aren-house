@@ -51,16 +51,18 @@ WireGuard VPN: 10.0.1.0/24 (legacy/backup)
 
 ### Ingress y flujo de tráfico
 ```
-Cliente → DNS (dnsmasq) → 10.0.0.50 → MetalLB → Traefik k3s → Ingress → Service → Pod
+Cliente → DNS (dnsmasq) → 192.168.1.89 → DNAT → 10.0.0.50 → MetalLB → Traefik k3s → Ingress → Service → Pod
 ```
 
 - `*.homelab.local` → 10.0.0.1 (Traefik Docker, servicios legacy)
-- `*.k8s.homelab.local` → 10.0.0.50 (Traefik k3s via MetalLB)
+- `*.k8s.homelab.local` → 192.168.1.89 (DNAT → MetalLB 10.0.0.50, Traefik k3s)
+- dnsmasq escucha en LAN (eth0) + WAN (enx00e04c683da2), DHCP solo en LAN
+- DNAT en firewall redirige WAN :80/:443 → 10.0.0.50 (MetalLB)
 
 Para exponer un servicio nuevo en k8s:
 1. Crear Service (ClusterIP) apuntando a los pods
 2. Crear Ingress con host `miapp.k8s.homelab.local`
-3. DNS ya resuelve `*.k8s.homelab.local` → 10.0.0.50
+3. DNS ya resuelve `*.k8s.homelab.local` → 192.168.1.89 → DNAT → MetalLB
 
 ### Storage
 - **local-path** (provisioner incluido en k3s) para PVCs
@@ -101,7 +103,7 @@ Los Docker stacks en `stacks/` se migran gradualmente al cluster k3s:
 | `stacks/observability/` | Prometheus migrado, Grafana pendiente | `k8s-apps/monitoring-stack/` |
 | `stacks/n8n/` | En Docker | Pendiente |
 | `stacks/pihole/` | En Docker | Pendiente |
-| `stacks/registry/` | En Docker | Pendiente |
+| `stacks/registry/` | Migrado a k8s (Docker stack legacy) | `k8s-apps/registry/` |
 | `stacks/router/` | Traefik Docker | Coexiste con Traefik k3s |
 
 ## File Structure
