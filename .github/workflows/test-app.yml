@@ -5,13 +5,30 @@ on:
     branches: [main]
     paths:
       - "apps/test-app/**"
+  workflow_dispatch:
+  # Si quieres CI en PRs (solo de tu repo, no forks):
+  # pull_request:
+  #   branches: [main]
+  #   paths:
+  #     - "apps/test-app/**"
 
 jobs:
   build-test-app:
+    # Bloquear forks y PRs externos
+    if: |
+      github.repository_owner == 'KrlosAren' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    
     runs-on: [self-hosted, homelab]
+    
+    # Permisos mínimos
+    permissions:
+      contents: read
+    
     steps:
       - uses: actions/checkout@v4
-      - name: build and push
+      
+      - name: Build and push
         run: |
           docker build -t registry.k8s.homelab.local/test-app:${{ github.sha }} ./apps/test-app/
           docker push registry.k8s.homelab.local/test-app:${{ github.sha }}
