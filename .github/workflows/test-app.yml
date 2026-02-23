@@ -1,34 +1,180 @@
-name: Build and deploy
+name: Build and Deploy
 
+# Solo triggers seguros para self-hosted runners en repos públicos
 on:
   push:
     branches: [main]
     paths:
-      - "apps/test-app/**"
+      - "apps/**"
   workflow_dispatch:
-  # Si quieres CI en PRs (solo de tu repo, no forks):
-  # pull_request:
-  #   branches: [main]
-  #   paths:
-  #     - "apps/test-app/**"
+    inputs:
+      app:
+        description: 'App to build (leave empty for auto-detect)'
+        required: false
+        type: string
+
+# Permisos mínimos a nivel de workflow
+permissions:
+  contents: read
 
 jobs:
-  build-test-app:
-    # Bloquear forks y PRs externos
-    if: |
-      github.repository_owner == 'KrlosAren' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    
-    runs-on: [self-hosted, homelab]
-    
-    # Permisos mínimos
-    permissions:
-      contents: read
-    
+  # ============================================
+  # Job: Security Gate
+  # Verifica que el workflow es seguro de ejecutar
+  # ============================================
+  security-gate:
+    runs-on: ubuntu-latest  # Runner público para verificación
+    outputs:
+      is-safe: ${{ steps.check.outputs.safe }}
+    steps:
+      - name: Security Check
+        id: check
+        run: |
+          # Solo permitir si:
+          # 1. Es el repo correcto
+          # 2. Es push a main o workflow_dispatch
+          # 3. El actor es el owner
+          if [[ "${{ github.repository }}" == "KrlosAren/aren-house" ]] && \
+             [[ "${{ github.event_name }}" != "pull_request" ]] && \
+             [[ "${{ github.event_name }}" != "pull_request_target" ]] && \
+             [[ "${{ github.actor }}" == "KrlosAren" ]]; then
+            echo "safe=true" >> $GITHUB_OUTPUT
+            echo "✅ Security check passed"
+          else
+            echo "safe=false" >> $GITHUB_OUTPUT
+            echo "❌ Security check failed"
+            echo "  Repository: ${{ github.repository }}"
+            echo "  Event: ${{ github.event_name }}"
+            echo "  Actor: ${{ github.actor }}"
+          fi
+
+  # ============================================
+  # Job: Detect Changes
+  # Detecta qué apps cambiaron
+  # ============================================
+  detect-changes:
+    needs: security-gate
+    if: needs.security-gate.outputs.is-safe == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      test-app: ${{ steps.changes.outputs.test-app }}
+      # Agregar más apps aquí cuando las tengas
+      # another-app: ${{ steps.changes.outputs.another-app }}
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Build and push
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed apps
+        id: changes
         run: |
-          docker build -t registry.k8s.homelab.local/test-app:${{ github.sha }} ./apps/test-app/
-          docker push registry.k8s.homelab.local/test-app:${{ github.sha }}
+          # Si es workflow_dispatch con input, usar ese
+          if [[ -n "${{ inputs.app }}" ]]; then
+            echo "${{ inputs.app }}=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Detectar cambios en cada app
+          if git diff --name-only HEAD~1 HEAD | grep -q "^apps/test-app/"; then
+            echo "test-app=true" >> $GITHUB_OUTPUT
+            echo "📦 test-app changed"
+          else
+            echo "test-app=false" >> $GITHUB_OUTPUT
+          fi
+          
+          # Agregar más apps aquí
+          # if git diff --name-only HEAD~1 HEAD | grep -q "^apps/another-app/"; then
+          #   echo "another-app=true" >> $GITHUB_OUTPUT
+          # fi
+
+  # ============================================
+  # Job: Build test-app
+  # ============================================
+  build-test-app:
+    needs: [security-gate, detect-changes]
+    if: |
+      needs.security-gate.outputs.is-safe == 'true' &&
+      needs.detect-changes.outputs.test-app == 'true'
+    runs-on: [self-hosted, homelab]
+    
+    # Timeout para evitar jobs colgados
+    timeout-minutes: 30
+    
+    env:
+      REGISTRY: registry.k8s.homelab.local
+      IMAGE_NAME: test-app
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up image tags
+        id: tags
+        run: |
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "sha_short=${SHA_SHORT}" >> $GITHUB_OUTPUT
+          echo "date=$(date +%Y%m%d)" >> $GITHUB_OUTPUT
+
+      - name: Build image
+        run: |
+          echo "🔨 Building ${{ env.IMAGE_NAME }}..."
+          docker build \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.sha }} \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.sha_short }} \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            ./apps/test-app/
+
+      - name: Push image
+        run: |
+          echo "📤 Pushing to registry..."
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.sha }}
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.sha_short }}
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Cleanup old images
+        run: |
+          echo "🧹 Cleaning up local images..."
+          docker image prune -f --filter "until=24h" || true
+
+      - name: Summary
+        run: |
+          echo "## ✅ Build Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag (full) | \`${{ steps.tags.outputs.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag (short) | \`${{ steps.tags.outputs.sha_short }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag (latest) | \`latest\` |" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================
+  # Job: Deploy (opcional, para cuando tengas ArgoCD)
+  # ============================================
+  # deploy-test-app:
+  #   needs: [security-gate, build-test-app]
+  #   if: needs.security-gate.outputs.is-safe == 'true'
+  #   runs-on: [self-hosted, homelab]
+  #   steps:
+  #     - name: Update deployment
+  #       run: |
+  #         kubectl set image deployment/test-app \
+  #           test-app=registry.k8s.homelab.local/test-app:${{ github.sha }} \
+  #           -n default
+
+  # ============================================
+  # Job: Notify on failure
+  # ============================================
+  notify-failure:
+    needs: [build-test-app]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify failure
+        run: |
+          echo "❌ Build failed for ${{ github.repository }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Actor: ${{ github.actor }}"
+          # Aquí podrías agregar notificación a Slack, Discord, etc.
