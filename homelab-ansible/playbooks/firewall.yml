@@ -16,7 +16,7 @@
   vars:
     lan_network: "10.0.0.0/24"
     wan_network: "192.168.1.0/24"
-    vpn_network: "10.0.1.0/24"
+    tailscale_network: "100.64.0.0/10"
     wan_interface: "enx00e04c683da2"
     lan_interface: "eth0"
     gateway_ip: "10.0.0.1"
@@ -53,17 +53,17 @@
     # PRIMERO: reglas de allow
     # ======================================
 
-    # reglas LAN - permitir todo (netboot)
-    - name: permitir todo desde LAN (necesario para NFS netboot)
+    # reglas LAN - permitir todo
+    - name: permitir todo desde LAN
       ufw:
         rule: allow
         interface: "{{ lan_interface }}"
         direction: in
         from_ip: "{{ lan_network }}"
-        comment: "Todo desde LAN (netboot)"
+        comment: "Todo desde LAN"
       tags: lan
 
-    # reglas DHCP/TFTP broadcast
+    # reglas DHCP broadcast
     - name: permitir DHCP broadcast en LAN
       ufw:
         rule: allow
@@ -74,24 +74,14 @@
         comment: "DHCP broadcast en LAN"
       tags: dhcp
 
-    - name: permitir TFTP en LAN
-      ufw:
-        rule: allow
-        interface: "{{ lan_interface }}"
-        direction: in
-        port: "69"
-        proto: udp
-        comment: "TFTP en LAN"
-      tags: tftp
-
     # reglas SSH
-    - name: permitir SSH desde VPN
+    - name: permitir SSH desde Tailscale
       ufw:
         rule: allow
         port: "22"
         proto: tcp
-        from_ip: "{{ vpn_network }}"
-        comment: "SSH desde VPN"
+        from_ip: "{{ tailscale_network }}"
+        comment: "SSH desde Tailscale"
       tags: ssh
 
     - name: limitar SSH desde WAN (rate limit)
@@ -102,24 +92,15 @@
         comment: "SSH desde WAN con rate limit"
       tags: ssh
 
-    # reglas wireguard
-    - name: permitir WireGuard desde cualquier lugar
+    # reglas Tailscale
+    - name: permitir todo desde Tailscale
       ufw:
         rule: allow
-        port: "51820"
-        proto: udp
-        comment: "WireGuard VPN"
-      tags: wireguard
+        from_ip: "{{ tailscale_network }}"
+        comment: "Todo desde Tailscale VPN"
+      tags: tailscale
 
-    # reglas VPN - servicios internos
-    - name: permitir DNS desde VPN
-      ufw:
-        rule: allow
-        port: "53"
-        from_ip: "{{ vpn_network }}"
-        comment: "DNS desde VPN"
-      tags: dns
-
+    # reglas DNS
     - name: permitir DNS desde WAN
       ufw:
         rule: allow
@@ -128,25 +109,7 @@
         comment: "DNS desde WAN (resolver k8s.homelab.local)"
       tags: dns
 
-    - name: permitir NFS desde VPN
-      ufw:
-        rule: allow
-        port: "2049"
-        proto: tcp
-        from_ip: "{{ vpn_network }}"
-        comment: "NFS desde VPN"
-      tags: nfs
-
-    - name: permitir RPC portmapper desde VPN
-      ufw:
-        rule: allow
-        port: "111"
-        proto: tcp
-        from_ip: "{{ vpn_network }}"
-        comment: "RPC portmapper desde VPN"
-      tags: nfs
-
-    # reglas http/https (para servicios web futuros)
+    # reglas http/https
     - name: permitir HTTP desde cualquier lugar
       ufw:
         rule: allow
@@ -163,20 +126,21 @@
         comment: "HTTPS"
       tags: web
 
+    # reglas k3s
     - name: permitir todo desde Pods k3s
       ufw:
         rule: allow
         from_ip: "{{ k3s_pod_cidr }}"
         comment: "Todo desde Pods k3s"
       tags: k3s
-    
-    - name: permitir k3s API desde VPN
+
+    - name: permitir k3s API desde Tailscale
       ufw:
         rule: allow
         port: "6443"
         proto: tcp
-        from_ip: "{{ vpn_network }}"
-        comment: "k3s API desde VPN"
+        from_ip: "{{ tailscale_network }}"
+        comment: "k3s API desde Tailscale"
       tags: k3s
 
     - name: permitir k3s API desde WAN
@@ -213,6 +177,15 @@
     # ===================================================
     # forwarding (necesario para NAT)
     # ===================================================
+    - name: habilitar ip_forward en el kernel
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: '1'
+        state: present
+        sysctl_file: /etc/sysctl.d/99-forwarding.conf
+        reload: yes
+      tags: forward
+
     - name: habilitar forwarding en ufw
       lineinfile:
         path: /etc/default/ufw
@@ -222,23 +195,25 @@
       notify: Reload ufw
 
     # ===================================================
-    # DNAT: redirigir WAN HTTP/HTTPS hacia MetalLB (Traefik k3s)
-    # Se inyectan reglas NAT en /etc/ufw/before.rules
+    # NAT: MASQUERADE + DNAT en /etc/ufw/before.rules
     # ===================================================
-    - name: DNAT - agregar reglas NAT en before.rules
+    - name: NAT - agregar reglas MASQUERADE y DNAT en before.rules
       blockinfile:
         path: /etc/ufw/before.rules
         insertbefore: "^\\*filter"
-        marker: "# {mark} DNAT METALLB TRAEFIK K3S"
+        marker: "# {mark} NAT RULES HOMELAB"
         block: |
           *nat
           :PREROUTING ACCEPT [0:0]
-          # WAN -> MetalLB (Traefik k3s)
+          :POSTROUTING ACCEPT [0:0]
+          # MASQUERADE - LAN sale a internet via WAN
+          -A POSTROUTING -s {{ lan_network }} -o {{ wan_interface }} -j MASQUERADE
+          # DNAT - WAN HTTP/HTTPS -> MetalLB (Traefik k3s)
           -A PREROUTING -i {{ wan_interface }} -p tcp --dport 80 -j DNAT --to-destination 10.0.0.50:80
           -A PREROUTING -i {{ wan_interface }} -p tcp --dport 443 -j DNAT --to-destination 10.0.0.50:443
           COMMIT
       notify: Reload ufw
-      tags: dnat
+      tags: nat
 
     # ===================================================
     # TERCERO: habilitar firewall
@@ -276,7 +251,7 @@
 
   vars:
     lan_network: "10.0.0.0/24"
-    vpn_network: "10.0.1.0/24"
+    tailscale_network: "100.64.0.0/10"
     gateway_ip: "10.0.0.1"
     k3s_pod_cidr: "10.42.0.0/16"
     k3s_service_cidr: "10.43.0.0/16"
@@ -301,11 +276,12 @@
         ufw --force disable
         ufw --force reset
         ufw allow from {{ lan_network }} to any port 22 proto tcp comment "SSH LAN"
-        ufw allow from {{ vpn_network }} to any port 22 proto tcp comment "SSH VPN"
+        ufw allow from {{ tailscale_network }} to any port 22 proto tcp comment "SSH Tailscale"
         ufw allow from {{ gateway_ip }} comment "Todo desde gateway"
         ufw allow from {{ lan_network }} comment "LAN nodos k3s"
         ufw allow from {{ k3s_pod_cidr }} comment "k3s pods CIDR"
         ufw allow from {{ k3s_service_cidr }} comment "k3s services CIDR"
+        ufw allow from {{ tailscale_network }} comment "Todo desde Tailscale"
         ufw default deny incoming
         ufw default allow outgoing
         ufw --force enable
@@ -313,6 +289,40 @@
       poll: 5
       changed_when: true
       tags: firewall
+
+    # ===================================================
+    # default gateway via rp1 (NAT)
+    # ===================================================
+    - name: verificar default gateway actual
+      command: ip route show default
+      register: current_gateway
+      changed_when: false
+      tags: gateway
+
+    - name: agregar default gateway si no apunta a 10.0.0.1
+      command: ip route replace default via {{ gateway_ip }}
+      when: "'10.0.0.1' not in current_gateway.stdout"
+      tags: gateway
+
+    - name: crear servicio systemd para persistir default gateway
+      copy:
+        content: |
+          [Unit]
+          Description=Set default gateway via rp1-master (NAT)
+          After=network.target
+          Wants=network.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/sbin/ip route replace default via {{ gateway_ip }}
+          RemainAfterExit=yes
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/set-default-gateway.service
+        mode: '0644'
+      notify: recargar systemd y habilitar gateway
+      tags: gateway
 
     - name: obtener estado del firewall
       command: ufw status verbose
@@ -324,3 +334,11 @@
       debug:
         msg: "{{ ufw_status.stdout_lines }}"
       tags: always
+
+  handlers:
+    - name: recargar systemd y habilitar gateway
+      systemd:
+        name: set-default-gateway
+        daemon_reload: yes
+        enabled: yes
+        state: started

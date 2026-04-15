@@ -10,23 +10,23 @@ NFS + Docker vfs = ✅ Funciona pero lento
 
 ## Solución
 
-Usar storage local (microSD o SSD) para Docker mientras se mantiene netboot.
+Usar storage local (SSD) para Docker y k3s mientras se mantiene netboot.
 ```
-rp2-node:
+rp2-node / rp3-node:
 ├── / (root)         → NFS (gateway)
-├── /mnt/docker      → microSD local
-└── /var/lib/docker  → symlink a /mnt/docker/docker
+├── /mnt/ssd         → SSD local (LABEL=ssd)
+├── /var/lib/docker  → symlink a /mnt/ssd/docker
+└── /var/lib/rancher → symlink a /mnt/ssd/rancher
 ```
 
 ---
 
 ## Configuración Actual
 
-| Nodo | Dispositivo | Partición | Montaje | Tamaño | Uso |
-|------|-------------|-----------|---------|--------|-----|
-| rp2 | microSD | /dev/mmcblk0p2 | /mnt/docker | 29GB | Docker |
-| rp3 | SSD | /dev/sda2 | /mnt/docker | 32GB | Docker |
-| rp3 | SSD | /dev/sda3 | /mnt/storage | 433GB | Storage/Backups |
+| Nodo | Dispositivo | Partición | Label | Montaje | Tamaño | Uso |
+|------|-------------|-----------|-------|---------|--------|-----|
+| rp2 | SSD USB | /dev/sda1 | ssd | /mnt/ssd | 500GB | Docker, k3s, Longhorn |
+| rp3 | SSD USB | /dev/sda1 | ssd | /mnt/ssd | 500GB | Docker, k3s, Longhorn |
 
 ---
 
@@ -38,52 +38,51 @@ lsblk
 lsblk -f  # Ver filesystems y UUIDs
 ```
 
-### 2. Formatear (si es necesario)
+### 2. Formatear y etiquetar (si es necesario)
 ```bash
-# Para microSD existente (ya tiene ext4)
-# No necesita formatear
+# Para SSD nuevo (una sola partición)
+sudo mkfs.ext4 -L ssd /dev/sda1
 
-# Para SSD nuevo
-sudo mkfs.ext4 -L docker /dev/sdX2
-sudo mkfs.ext4 -L storage /dev/sdX3
+# Para disco existente sin label
+sudo e2label /dev/sda1 ssd
 ```
 
 ### 3. Montar
 ```bash
 # Crear punto de montaje
-sudo mkdir -p /mnt/docker
+sudo mkdir -p /mnt/ssd
 
 # Montar
-sudo mount /dev/mmcblk0p2 /mnt/docker  # microSD
-# o
-sudo mount /dev/sda2 /mnt/docker       # SSD
+sudo mount /dev/sda1 /mnt/ssd
 ```
 
 ### 4. Configurar fstab (persistente)
 ```bash
 # Obtener UUID
-sudo blkid /dev/mmcblk0p2
+sudo blkid /dev/sda1
 
 # Agregar a fstab
-echo 'UUID=xxxxx /mnt/docker ext4 defaults 0 2' | sudo tee -a /etc/fstab
+echo 'UUID=xxxxx /mnt/ssd ext4 defaults,nofail 0 2' | sudo tee -a /etc/fstab
 
 # Verificar
 sudo mount -a
 ```
 
-### 5. Configurar Docker
+### 5. Configurar Docker y k3s
 ```bash
-# Detener Docker
+# Detener servicios
 sudo systemctl stop docker
+sudo systemctl stop k3s-agent
 
-# Mover datos existentes
+# Crear directorios en disco local
+sudo mkdir -p /mnt/ssd/docker /mnt/ssd/rancher
+
+# Mover datos existentes y crear symlinks
 sudo mv /var/lib/docker /var/lib/docker.old
+sudo ln -s /mnt/ssd/docker /var/lib/docker
 
-# Crear directorio en disco local
-sudo mkdir -p /mnt/docker/docker
-
-# Crear symlink
-sudo ln -s /mnt/docker/docker /var/lib/docker
+sudo mv /var/lib/rancher /var/lib/rancher.old
+sudo ln -s /mnt/ssd/rancher /var/lib/rancher
 
 # Cambiar a overlay2
 sudo tee /etc/docker/daemon.json << 'JSON'
@@ -92,8 +91,9 @@ sudo tee /etc/docker/daemon.json << 'JSON'
 }
 JSON
 
-# Iniciar Docker
+# Iniciar servicios
 sudo systemctl start docker
+sudo systemctl start k3s-agent
 
 # Verificar
 docker info | grep "Storage Driver"
@@ -107,25 +107,28 @@ ansible-playbook playbooks/local-storage.yml
 ```
 
 El playbook:
-1. Detecta discos con label `docker` o `writable`
-2. Los monta en `/mnt/docker`
-3. Configura Docker para usar overlay2
-4. Opcionalmente monta disco `storage`
+1. Detecta disco con label `ssd`
+2. Lo monta en `/mnt/ssd`
+3. Crea symlinks: `/var/lib/docker` → `/mnt/ssd/docker`, `/var/lib/rancher` → `/mnt/ssd/rancher`
+4. Configura Docker para usar overlay2
 
 ---
 
 ## Verificación
 ```bash
-# Ver montajes
-df -h /mnt/docker /mnt/storage
+# Ver montaje
+df -h /mnt/ssd
 
 # Ver storage driver de Docker
 docker info | grep "Storage Driver"
 # Debe mostrar: overlay2
 
-# Ver dónde está Docker
+# Ver symlinks
 ls -la /var/lib/docker
-# Debe ser symlink a /mnt/docker/docker
+# Debe ser symlink a /mnt/ssd/docker
+
+ls -la /var/lib/rancher
+# Debe ser symlink a /mnt/ssd/rancher
 ```
 
 ---
@@ -135,18 +138,14 @@ ls -la /var/lib/docker
 El mismo problema de NFS + overlay2 aplica para k3s/containerd. La solución es idéntica: symlink a disco local.
 
 ```
-rp2-node:
+rp2-node / rp3-node:
 ├── / (root)              → NFS (gateway)
-├── /mnt/docker           → microSD local
-├── /var/lib/docker       → symlink a /mnt/docker/docker
-└── /var/lib/rancher      → symlink a /mnt/docker/rancher  (k3s)
+├── /mnt/ssd              → SSD local (LABEL=ssd)
+├── /var/lib/docker       → symlink a /mnt/ssd/docker
+└── /var/lib/rancher      → symlink a /mnt/ssd/rancher  (k3s)
 ```
 
-El playbook `k3s.yml` crea automáticamente:
-1. Directorio `/var/lib/rancher-local` en el disco local
-2. Symlink `/var/lib/rancher` → `/var/lib/rancher-local`
-
-Esto permite que containerd use overlay2 en vez de vfs.
+El playbook `local-storage.yml` crea los symlinks automáticamente. Esto permite que containerd use overlay2 en vez de vfs.
 
 Ver [ADR-010: K3s Storage en Discos Locales](decisions/010-k3s-storage-on-nfs.md) para más detalles.
 
@@ -154,7 +153,7 @@ Ver [ADR-010: K3s Storage en Discos Locales](decisions/010-k3s-storage-on-nfs.md
 ```bash
 # Verificar symlink de k3s
 ls -la /var/lib/rancher
-# Debe ser symlink a /var/lib/rancher-local o /mnt/docker/rancher
+# Debe ser symlink a /mnt/ssd/rancher
 
 # Verificar que containerd usa overlay
 sudo crictl info | grep -i overlay

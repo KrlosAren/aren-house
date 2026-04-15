@@ -4,31 +4,16 @@
 #
 # Uso:
 #   ansible-playbook playbooks/longhorn-storage.yml
-#   ansible-playbook playbooks/longhorn-storage.yml --limit rp1-master
-#   ansible-playbook playbooks/longhorn-storage.yml --limit rp3-node
 - name: Configurar almacenamiento para Longhorn en el cluster k3s
   hosts: all
   become: true
 
   tasks:
-    - name: Crear directorio para Longhorn en rp1
-      file: 
-        path: /backup/longhorn
-        owner: root
-        group : root
-        mode: '0755'
-      when: inventory_hostname == 'rp1-master'
-      tags: storage
-    
-    - name: Crear directorio para Longhorn en rp3
+    - name: Crear directorio para Longhorn
       file:
-        path: "{{ item }}"
+        path: /var/lib/longhorn
         state: directory
-        owner: root 
-        group: root 
+        owner: root
+        group: root
         mode: '0755'
-      loop:
-        - /mnt/storage/longhorn
-        - /mnt/storage/local-path
-      when: inventory_hostname == 'rp3-node'
       tags: storage

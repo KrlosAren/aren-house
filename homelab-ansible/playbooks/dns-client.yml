@@ -1,0 +1,66 @@
+---
+# Playbook: dns-client.yml
+# Propósito: Configurar resolv.conf estático en nodos worker apuntando a dnsmasq
+#
+# Uso:
+#   ansible-playbook playbooks/dns-client.yml
+#   ansible-playbook playbooks/dns-client.yml --limit rp2-node
+#   ansible-playbook playbooks/dns-client.yml --tags verify
+- name: Configurar DNS estático en nodos worker
+  hosts: nodes
+  become: true
+
+  tasks:
+    - name: Verificar si systemd-resolved está activo
+      command: systemctl is-active systemd-resolved
+      register: resolved_status
+      changed_when: false
+      failed_when: false
+      tags: resolve
+
+    - name: Mostrar estado de systemd-resolved
+      debug:
+        msg: "systemd-resolved está {{ resolved_status.stdout }}"
+      tags: resolve
+
+    - name: Detener systemd-resolved
+      service:
+        name: systemd-resolved
+        state: stopped
+      when: resolved_status.stdout == "active"
+      tags: resolve
+
+    - name: Deshabilitar systemd-resolved
+      service:
+        name: systemd-resolved
+        enabled: false
+      when: resolved_status.stdout == "active"
+      tags: resolve
+
+    - name: Eliminar /etc/resolv.conf (symlink de systemd-resolved)
+      file:
+        path: /etc/resolv.conf
+        state: absent
+      tags: resolve
+
+    - name: Crear /etc/resolv.conf estático
+      copy:
+        content: |
+          nameserver 10.0.0.1
+          search homelab.local
+        dest: /etc/resolv.conf
+        owner: root
+        group: root
+        mode: '0644'
+      tags: resolve
+
+    - name: Verificar resolución DNS de registry.k8s.homelab.local
+      command: dig @10.0.0.1 registry.k8s.homelab.local +short
+      register: dns_result
+      changed_when: false
+      tags: verify
+
+    - name: Mostrar resultado de resolución DNS
+      debug:
+        msg: "registry.k8s.homelab.local resuelve a: {{ dns_result.stdout }}"
+      tags: verify

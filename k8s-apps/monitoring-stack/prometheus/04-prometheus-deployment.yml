@@ -15,9 +15,24 @@ spec:
         app: prometheus
     spec:
       serviceAccountName: prometheus
-      # Forzar a rpi3 donde está el SSD
-      nodeSelector:
-        kubernetes.io/hostname: rp3-node
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - rp1-master
+      securityContext:
+        fsGroup: 65534
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.37
+          command: ['sh', '-c', 'chown -R 65534:65534 /prometheus']
+          volumeMounts:
+            - name: data
+              mountPath: /prometheus
       containers:
         - name: prometheus
           image: prom/prometheus:v3.2.1
@@ -38,12 +53,17 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/prometheus
+            - name: rules
+              mountPath: /etc/prometheus/rules
             - name: data
               mountPath: /prometheus
       volumes:
         - name: config
           configMap:
             name: prometheus-config
+        - name: rules
+          configMap:
+            name: prometheus-rules
         - name: data
           persistentVolumeClaim:
             claimName: prometheus-data

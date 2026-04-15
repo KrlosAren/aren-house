@@ -10,6 +10,15 @@ data:
       scrape_interval: 30s
       evaluation_interval: 30s
 
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+                - alertmanager.monitoring.svc.cluster.local:9093
+
+    rule_files:
+      - /etc/prometheus/rules/*.yml
+
     scrape_configs:
       # Métricas de la API server de k3s
       - job_name: 'kubernetes-apiservers'
@@ -76,8 +85,8 @@ data:
           - source_labels: [__meta_kubernetes_pod_name]
             action: replace
             target_label: kubernetes_pod_name
-      
-      # node exporters
+
+      # Node exporters
       - job_name: 'node-exporter'
         static_configs:
           - targets:
@@ -86,3 +95,75 @@ data:
               - "10.0.0.3:9100"
             labels:
               env: 'homelab'
+
+      # Blackbox — probe SSH (puerto 22 de cada nodo)
+      - job_name: 'blackbox-ssh'
+        metrics_path: /probe
+        params:
+          module: [ssh_banner]
+        static_configs:
+          - targets:
+              - "10.0.0.1:22"   # rp1-master
+              - "10.0.0.2:22"   # rp2-node
+              - "10.0.0.3:22"   # rp3-node
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - source_labels: [__param_target]
+            target_label: instance
+          - target_label: __address__
+            replacement: blackbox-exporter.monitoring.svc.cluster.local:9115
+          - source_labels: [instance]
+            regex: '10\.0\.0\.1:22'
+            target_label: node
+            replacement: rp1-master
+          - source_labels: [instance]
+            regex: '10\.0\.0\.2:22'
+            target_label: node
+            replacement: rp2-node
+          - source_labels: [instance]
+            regex: '10\.0\.0\.3:22'
+            target_label: node
+            replacement: rp3-node
+
+      # Blackbox — ICMP ping a cada nodo
+      - job_name: 'blackbox-icmp'
+        metrics_path: /probe
+        params:
+          module: [icmp_ping]
+        static_configs:
+          - targets:
+              - "10.0.0.1"   # rp1-master
+              - "10.0.0.2"   # rp2-node
+              - "10.0.0.3"   # rp3-node
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - source_labels: [__param_target]
+            target_label: instance
+          - target_label: __address__
+            replacement: blackbox-exporter.monitoring.svc.cluster.local:9115
+          - source_labels: [instance]
+            regex: '10\.0\.0\.1'
+            target_label: node
+            replacement: rp1-master
+          - source_labels: [instance]
+            regex: '10\.0\.0\.2'
+            target_label: node
+            replacement: rp2-node
+          - source_labels: [instance]
+            regex: '10\.0\.0\.3'
+            target_label: node
+            replacement: rp3-node
+      
+      ## itself
+      - job_name: 'prometheus'
+        static_configs:
+          - targets:
+              - "localhost:9090"
+
+      ## alertmanager
+      - job_name: 'alertmanager'
+        static_configs:
+          - targets:
+              - "alertmanager.monitoring.svc.cluster.local:9093"

@@ -13,8 +13,6 @@ spec:
       labels:
         app: registry
     spec:
-      nodeSelector:
-        kubernetes.io/hostname: rp3-node
       containers:
         - name: registry
           image: registry:2.8.1

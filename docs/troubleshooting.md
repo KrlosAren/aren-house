@@ -107,16 +107,48 @@ sudo systemctl restart docker
 2. Encontrar rp1-master
 3. Edit route settings → Aprobar 10.0.0.0/24
 
-### DNS .homelab.local no resuelve desde VPN
+### DNS .homelab.local no resuelve desde Mac via Tailscale
 
-**Síntoma:** `ping rp1.homelab.local` falla
+**Síntoma:** `curl http://grafana.k8s.homelab.local` falla con `Could not resolve host`
 
-**Causa:** Mac no usa el DNS del homelab
+**Causa 1:** Archivos `/etc/resolver/` apuntan a IP Tailscale antigua de rp1.
+
+**Diagnóstico:**
+```bash
+tailscale status | grep rp1-master         # IP actual de rp1
+scutil --dns | grep -A3 homelab            # IP configurada en resolver
+dig @<IP_TAILSCALE_RP1> grafana.k8s.homelab.local  # probar directo
+```
 
 **Solución:**
 ```bash
-sudo mkdir -p /etc/resolver
-echo "nameserver 10.0.0.1" | sudo tee /etc/resolver/homelab.local
+# Actualizar con IP actual de Tailscale
+sudo bash -c 'echo "nameserver <IP_TAILSCALE_RP1>" > /etc/resolver/homelab.local'
+sudo bash -c 'echo "nameserver <IP_TAILSCALE_RP1>" > /etc/resolver/k8s.homelab.local'
+```
+
+**Causa 2:** dnsmasq no escucha en la interfaz `tailscale0`.
+
+**Diagnóstico:**
+```bash
+ssh admin@<IP_TAILSCALE_RP1> "sudo ss -ulnp | grep ':53'"
+# Si no aparece la IP Tailscale de rp1, dnsmasq no escucha en tailscale0
+```
+
+**Solución:** Agregar `interface=tailscale0` al template de dnsmasq y re-aplicar el playbook:
+```bash
+# En homelab-ansible/roles/dnsmasq/templates/dnsmasq.conf.j2 agregar:
+# interface=tailscale0
+# no-dhcp-interface=tailscale0
+
+ansible-playbook playbooks/gateway.yml
+```
+
+**Causa 3:** Archivo `/etc/resolver/homelab.localcat` (typo) interfiere.
+
+**Solución:**
+```bash
+sudo rm /etc/resolver/homelab.localcat
 ```
 
 ---
@@ -422,9 +454,35 @@ kubectl get svc -n <namespace>
 
 **Síntoma:** `kubectl get pvc` muestra `STATUS: Pending`
 
-**Causa (con local-path):** Es normal hasta que un Pod lo use. El provisioner `local-path` usa `WaitForFirstConsumer`.
+**Causa 1 (con local-path):** Es normal hasta que un Pod lo use. El provisioner `local-path` usa `WaitForFirstConsumer`.
 
 **Solución:** Crear un Pod/Deployment que use el PVC. El estado cambiará a `Bound`.
+
+**Causa 2 (StorageClass no existe):** El PVC referencia un `storageClassName` que no está instalado (ej. `longhorn` antes de instalar Longhorn).
+
+**Diagnóstico:**
+```bash
+kubectl describe pvc <nombre> -n <namespace>
+# Buscar: "could not find v1.PersistentVolumeClaim" o "unbound immediate PersistentVolumeClaims"
+
+kubectl get storageclass
+# Verificar que el StorageClass referenciado existe
+```
+
+**Solución:** Instalar el StorageClass faltante. Para Longhorn:
+```bash
+helm repo add longhorn https://charts.longhorn.io
+helm install longhorn longhorn/longhorn -n longhorn-system --create-namespace
+```
+Una vez instalado, los PVCs pasan a `Bound` automáticamente sin reiniciar los pods.
+
+### Pods en estado Pending (no se asignan a ningún nodo)
+
+**Síntoma:** `kubectl get pods` muestra `STATUS: Pending` con `kubectl describe` mostrando `pod has unbound immediate PersistentVolumeClaims`
+
+**Causa:** El pod no puede hacer scheduling porque sus PVCs están en `Pending` (ver caso anterior).
+
+**Nota:** El error dice "0/3 nodes are available" pero no es un problema de nodos — es de storage. El scheduler no puede asignar el pod hasta que todos sus PVCs estén `Bound`.
 
 ### kubectl no conecta al cluster
 

@@ -507,6 +507,169 @@ ansible-playbook playbooks/duckdns.yml -e "duckdns_token=TU_TOKEN_AQUI"
 
 ---
 
+### github-runner.yml
+
+**Propósito**: Instalar GitHub Actions self-hosted runner en rp1-master.
+
+**Cuándo usar**:
+- Configuración inicial del runner CI/CD
+- Actualizar versión del runner
+
+**Ejecutar desde**: Tu Mac (via VPN)
+
+```bash
+cd homelab-ansible
+
+# Requiere token de GitHub (Settings → Actions → Runners → New)
+ansible-playbook playbooks/github-runner.yml -e "github_token=TU_TOKEN"
+```
+
+**Qué hace**:
+1. Descarga actions-runner (arm64) en `/home/admin/actions-runner`
+2. Configura con labels: `homelab`, `self-hosted`, `arm64`
+3. Instala como servicio systemd (auto-start)
+
+**Variables por defecto**:
+| Variable | Valor | Descripción |
+|----------|-------|-------------|
+| runner_version | 2.331.0 | Versión del runner |
+| runner_labels | homelab,self-hosted,arm64 | Labels del runner |
+| runner_dir | /home/admin/actions-runner | Directorio de instalación |
+
+---
+
+### longhorn.yml
+
+**Propósito**: Instalar dependencias de Longhorn (iSCSI) en todos los nodos.
+
+**Cuándo usar**:
+- Antes de instalar Longhorn en el cluster
+- Al agregar un nuevo nodo que participará en Longhorn
+
+**Ejecutar desde**: Tu Mac (via VPN)
+
+```bash
+cd homelab-ansible
+
+# Todos los nodos
+ansible-playbook playbooks/longhorn.yml
+
+# Solo un nodo
+ansible-playbook playbooks/longhorn.yml --limit rp3-node
+```
+
+**Qué instala**: `open-iscsi`, `nfs-common`, `util-linux`, `cryptsetup`
+
+---
+
+### longhorn-storage.yml
+
+**Propósito**: Crear directorios de almacenamiento para Longhorn en los nodos.
+
+**Cuándo usar**:
+- Después de `longhorn.yml`, antes de configurar discos en Longhorn UI
+
+**Ejecutar desde**: Tu Mac (via VPN)
+
+```bash
+cd homelab-ansible
+
+# rp1-master: crea /backup/longhorn
+ansible-playbook playbooks/longhorn-storage.yml --limit rp1-master
+
+# Nodos worker: crea /mnt/ssd/longhorn
+ansible-playbook playbooks/longhorn-storage.yml --limit nodes
+```
+
+---
+
+### dns-client.yml
+
+**Propósito**: Configurar `/etc/resolv.conf` estático en nodos worker apuntando a dnsmasq (10.0.0.1).
+
+**Cuándo usar**:
+- Después de configurar un nodo nuevo que usa `systemd-resolved`
+- Cuando Tailscale MagicDNS interfiere con resolución de `.homelab.local` / `.k8s.homelab.local`
+
+**Ejecutar desde**: Tu Mac (via VPN)
+
+```bash
+cd homelab-ansible
+
+# Todos los workers
+ansible-playbook playbooks/dns-client.yml
+
+# Solo un nodo
+ansible-playbook playbooks/dns-client.yml --limit rp2-node
+
+# Solo verificar resolución
+ansible-playbook playbooks/dns-client.yml --tags verify
+```
+
+**Qué hace**:
+1. Detecta si `systemd-resolved` está activo
+2. Detiene y deshabilita `systemd-resolved`
+3. Elimina `/etc/resolv.conf` (symlink de systemd-resolved)
+4. Crea `/etc/resolv.conf` estático con `nameserver 10.0.0.1` y `search homelab.local`
+5. Verifica resolución DNS de `registry.k8s.homelab.local`
+
+**Tags disponibles**:
+| Tag | Descripción |
+|-----|-------------|
+| resolve | Deshabilitar systemd-resolved y crear resolv.conf |
+| verify | Verificar resolución DNS |
+
+---
+
+### local-storage.yml
+
+**Propósito**: Montar SSD local en nodos worker (`/mnt/ssd`) y configurar Docker + k3s con symlinks.
+
+**Cuándo usar**:
+- Configuración inicial de storage en nodos worker
+- Después de agregar un nuevo disco a un nodo
+
+**Ejecutar desde**: Tu Mac (via VPN)
+
+```bash
+cd homelab-ansible
+ansible-playbook playbooks/local-storage.yml
+```
+
+**Prerequisitos**: El disco debe tener label `ssd` (`sudo e2label /dev/sda1 ssd`).
+
+**Qué hace**:
+1. Detecta disco con `LABEL=ssd`
+2. Monta en `/mnt/ssd` via fstab
+3. Crea symlinks: `/var/lib/docker` → `/mnt/ssd/docker`, `/var/lib/rancher` → `/mnt/ssd/rancher`
+4. Configura Docker con overlay2
+
+**Tags disponibles**: `detect`, `mount`, `docker`, `rancher`, `verify`
+
+---
+
+### registry.yml
+
+**Propósito**: Configurar Docker y containerd para usar el registry privado local.
+
+**Cuándo usar**:
+- Después de desplegar el registry en k8s
+- Al agregar un nuevo nodo al cluster
+
+**Ejecutar desde**: Tu Mac (via VPN)
+
+```bash
+cd homelab-ansible
+ansible-playbook playbooks/registry.yml
+```
+
+**Qué hace**:
+- Docker: configura `insecure-registries` en `/etc/docker/daemon.json`
+- k3s/containerd: crea `/etc/rancher/k3s/registries.yaml` con mirror HTTP
+- Reinicia Docker y/o k3s según corresponda
+
+---
+
 ## Orden de Ejecución para Nuevo Nodo
 
 1. **Instalar Ubuntu** en microSD y bootear el nuevo Raspberry Pi

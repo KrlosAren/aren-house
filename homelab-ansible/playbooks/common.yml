@@ -45,32 +45,6 @@
         msg: "Timezone: {{ current_tz.stdout }}"
       tags: timezone
     
-    # =================================================
-    # ntp / chrony
-    # =================================================
-    - name: Instalar chrony
-      apt:
-        name: chrony
-        state: present
-      tags: ntp
-
-    - name: Habilitar y arrancar chrony
-      service:
-        name: chrony
-        state: started
-        enabled: yes
-      tags: ntp
-
-    - name: forzar sincronizacion de tiempo
-      command: chronyc makestep
-      changed_when: false
-      tags: ntp
-
-    - name: verificar sincronizacion
-      command: chronyc tracking
-      register: chrony_status
-      changed_when: false
-      tags: ntp
     
     # ===============================================
     # Locales

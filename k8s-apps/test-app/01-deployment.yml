@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-app
+  namespace: simple-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      name: test-app
+  template:
+    metadata:
+      labels:
+        name: test-app
+        app: test-app
+    spec:
+      containers:
+        - name: test-app
+          image: registry.k8s.homelab.local/test-app:latest
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              memory: "125Mi"
+              cpu: "100m"
+            limits:
+              memory: "150Mi"
+              cpu: "100m"

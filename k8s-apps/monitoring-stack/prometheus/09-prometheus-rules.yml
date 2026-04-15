@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: monitoring
+data:
+  homelab.rules.yml: |
+    groups:
+      - name: nodos
+        rules:
+          - alert: NodoSinRespuesta
+            expr: up{job="node-exporter"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Nodo {{ $labels.instance }} sin respuesta"
+              description: "node-exporter en {{ $labels.instance }} lleva más de 2 minutos sin responder."
+
+          - alert: CargaCPUAlta
+            expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "CPU alta en {{ $labels.instance }}"
+              description: "CPU al {{ $value | printf \"%.0f\" }}% en {{ $labels.instance }} por más de 5 minutos."
+
+          - alert: MemoriaAltaNodo
+            expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Memoria alta en {{ $labels.instance }}"
+              description: "Memoria al {{ $value | printf \"%.0f\" }}% en {{ $labels.instance }}."
+
+          - alert: DiscoLlenoNodo
+            expr: (1 - (node_filesystem_avail_bytes{fstype!="tmpfs",mountpoint="/"} / node_filesystem_size_bytes{fstype!="tmpfs",mountpoint="/"})) * 100 > 80
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Disco lleno en {{ $labels.instance }}"
+              description: "Disco al {{ $value | printf \"%.0f\" }}% en {{ $labels.instance }}."
+
+      - name: kubernetes
+        rules:
+          - alert: PodCrashLooping
+            expr: rate(kube_pod_container_status_restarts_total[15m]) * 60 > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod en CrashLoop: {{ $labels.pod }}"
+              description: "El pod {{ $labels.namespace }}/{{ $labels.pod }} está reiniciando continuamente."
+
+          - alert: PodNoListo
+            expr: kube_pod_status_ready{condition="true"} == 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod no listo: {{ $labels.pod }}"
+              description: "El pod {{ $labels.namespace }}/{{ $labels.pod }} lleva 5 minutos sin estar ready."
+
+          - alert: NodoK8sNoListo
+            expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Nodo k8s no listo: {{ $labels.node }}"
+              description: "El nodo {{ $labels.node }} no tiene condición Ready."

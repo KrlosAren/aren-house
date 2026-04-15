@@ -3,102 +3,55 @@
   become: yes
 
   vars:
-    docker_mount: /mnt/docker
-    storage_mount: /mnt/storage
+    ssd_mount: /mnt/ssd
 
   tasks:
     # ========================================
-    # Detectar discos por LABEL
+    # Detectar disco por LABEL
     # ========================================
-    - name: Detectar disco para Docker (LABEL=docker)
-      shell: "blkid -t LABEL=docker -o device || true"
-      register: docker_disk
+    - name: Detectar disco SSD (LABEL=ssd)
+      shell: "blkid -t LABEL=ssd -o device || true"
+      register: ssd_disk
       changed_when: false
       failed_when: false
       tags: detect
 
-    - name: Detectar disco para Storage (LABEL=storage)
-      shell: "blkid -t LABEL=storage -o device || true"
-      register: storage_disk
-      changed_when: false
-      failed_when: false
-      tags: detect
-
-    - name: Definir si se debe montar storage separado
-      set_fact:
-        do_storage_mount: >-
-          {{ (storage_disk.stdout | trim) != ''
-             and (docker_disk.stdout | trim) != ''
-             and (storage_disk.stdout | trim) != (docker_disk.stdout | trim) }}
-      tags: detect
-
-    - name: Mostrar discos detectados
+    - name: Mostrar disco detectado
       debug:
-        msg:
-          - "Docker disk: {{ docker_disk.stdout | default('No encontrado') }}"
-          - "Storage disk: {{ storage_disk.stdout | default('No encontrado') }}"
-          - "Montar storage separado: {{ do_storage_mount }}"
+        msg: "SSD disk: {{ ssd_disk.stdout | default('No encontrado') }}"
       tags: detect
 
-    - name: Fallar si no existe disco LABEL=docker
+    - name: Fallar si no existe disco LABEL=ssd
       fail:
-        msg: "No se encontró un disco/partición con LABEL=docker. (rp2: e2label /dev/mmcblk0p2 docker)"
-      when: docker_disk.stdout | trim == ""
+        msg: "No se encontró un disco/partición con LABEL=ssd. Usar: sudo e2label /dev/sda1 ssd"
+      when: ssd_disk.stdout | trim == ""
       tags: detect
 
     # ========================================
-    # Montar Docker
+    # Montar SSD
     # ========================================
-    - name: Crear punto de montaje para Docker
+    - name: Crear punto de montaje para SSD
       file:
-        path: "{{ docker_mount }}"
+        path: "{{ ssd_mount }}"
         state: directory
-        mode: '0755'
-      tags: docker
+        mode: "0755"
+      tags: mount
 
-    - name: Obtener UUID del disco Docker
-      shell: "blkid -s UUID -o value {{ docker_disk.stdout }}"
-      register: docker_uuid
+    - name: Obtener UUID del disco SSD
+      shell: "blkid -s UUID -o value {{ ssd_disk.stdout }}"
+      register: ssd_uuid
       changed_when: false
-      tags: docker
+      tags: mount
 
-    - name: Montar disco Docker en fstab
+    - name: Montar disco SSD en fstab
       mount:
-        path: "{{ docker_mount }}"
-        src: "UUID={{ docker_uuid.stdout }}"
+        path: "{{ ssd_mount }}"
+        src: "UUID={{ ssd_uuid.stdout }}"
         fstype: ext4
         opts: "defaults,nofail"
         state: mounted
-      when: docker_uuid.stdout | trim != ""
-      tags: docker
-
-    # ========================================
-    # Montar Storage (solo si existe y es distinto)
-    # ========================================
-    - name: Crear punto de montaje para Storage
-      file:
-        path: "{{ storage_mount }}"
-        state: directory
-        mode: '0755'
-      when: do_storage_mount
-      tags: storage
-
-    - name: Obtener UUID del disco Storage
-      shell: "blkid -s UUID -o value {{ storage_disk.stdout }}"
-      register: storage_uuid
-      changed_when: false
-      when: do_storage_mount
-      tags: storage
-
-    - name: Montar disco Storage en fstab
-      mount:
-        path: "{{ storage_mount }}"
-        src: "UUID={{ storage_uuid.stdout }}"
-        fstype: ext4
-        opts: "defaults,nofail"
-        state: mounted
-      when: do_storage_mount and (storage_uuid.stdout | trim) != ""
-      tags: storage
+      when: ssd_uuid.stdout | trim != ""
+      tags: mount
 
     # ========================================
     # Configurar Docker para usar storage local
@@ -111,9 +64,9 @@
 
     - name: Crear directorio Docker en disco local
       file:
-        path: "{{ docker_mount }}/docker"
+        path: "{{ ssd_mount }}/docker"
         state: directory
-        mode: '0755'
+        mode: "0755"
       tags: docker
 
     - name: Verificar si /var/lib/docker es symlink
@@ -132,7 +85,7 @@
 
     - name: Crear symlink para Docker
       file:
-        src: "{{ docker_mount }}/docker"
+        src: "{{ ssd_mount }}/docker"
         dest: /var/lib/docker
         state: link
         force: yes
@@ -145,7 +98,7 @@
           {
             "storage-driver": "overlay2"
           }
-        mode: '0644'
+        mode: "0644"
       tags: docker
 
     - name: Iniciar Docker
@@ -153,6 +106,38 @@
         name: docker
         state: started
       tags: docker
+
+    # ========================================
+    # Configurar k3s/rancher para usar storage local
+    # ========================================
+    - name: Crear directorio rancher en disco local
+      file:
+        path: "{{ ssd_mount }}/rancher"
+        state: directory
+        mode: "0755"
+      tags: rancher
+
+    - name: Verificar si /var/lib/rancher es symlink
+      stat:
+        path: /var/lib/rancher
+      register: rancher_lib_stat
+      tags: rancher
+
+    - name: Mover datos rancher existentes (si no es symlink)
+      command: mv /var/lib/rancher /var/lib/rancher.old
+      when:
+        - rancher_lib_stat.stat.exists
+        - not rancher_lib_stat.stat.islnk
+      failed_when: false
+      tags: rancher
+
+    - name: Crear symlink para rancher
+      file:
+        src: "{{ ssd_mount }}/rancher"
+        dest: /var/lib/rancher
+        state: link
+        force: yes
+      tags: rancher
 
     # ========================================
     # Verificar
@@ -163,9 +148,16 @@
       changed_when: false
       tags: verify
 
-    - name: Verificar montajes
-      command: df -h {{ docker_mount }} {{ storage_mount }}
+    - name: Verificar montaje
+      command: df -h {{ ssd_mount }}
       register: mount_check
+      changed_when: false
+      failed_when: false
+      tags: verify
+
+    - name: Verificar symlinks
+      shell: "ls -la /var/lib/docker /var/lib/rancher"
+      register: symlink_check
       changed_when: false
       failed_when: false
       tags: verify
@@ -175,4 +167,5 @@
         msg:
           - "Storage driver: {{ driver_check.stdout }}"
           - "{{ mount_check.stdout_lines }}"
+          - "{{ symlink_check.stdout_lines }}"
       tags: verify

@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: n8n
+  namespace: n8n-system
+  labels:
+    app.kubernetes.io/name: n8n
+spec:
+  rules:
+  - host: n8n.k8s.homelab.local
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/"
+        backend:
+          service:
+            name: n8n-web
+            port: 
+              number: 80

@@ -3,12 +3,14 @@
 # Managed by Ansible - Do not edit manually
 # ===========================================
 
-# Interfaces - escuchar en LAN y WAN (solo DNS en WAN, DHCP solo en LAN)
+# Interfaces - escuchar en LAN, WAN y Tailscale (solo DNS en WAN y Tailscale, DHCP solo en LAN)
 interface={{ dnsmasq_interface }}
 interface={{ dnsmasq_wan_interface }}
+interface=tailscale0
 listen-address=127.0.0.1
 bind-dynamic
 no-dhcp-interface={{ dnsmasq_wan_interface }}
+no-dhcp-interface=tailscale0
 
 # No usar /etc/resolv.conf del sistema
 no-resolv
@@ -39,11 +41,6 @@ dhcp-host={{ host.mac }},{{ host.name }},{{ host.ip }},infinite
 {% endfor %}
 
 
-
-# ----- TFTP + PXE Boot -----
-enable-tftp
-tftp-root={{ dnsmasq_tftp_root }}
-pxe-service=0,"Raspberry Pi Boot"
 
 # ----- Logging -----
 {% if dnsmasq_log_queries %}
