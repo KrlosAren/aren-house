@@ -7,7 +7,8 @@ services:
     env_file:
       - .env 
     volumes:
-      - /backup/data/postgres:/var/lib/postgresql/18/docker
+      - postgres_data:/var/lib/postgresql/18/docker
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - 5432:5432 
     networks:
@@ -18,4 +19,4 @@ networks:
     driver: bridge
 
 volumes:
-  posgres_data: {}
+  postgres_data: {}

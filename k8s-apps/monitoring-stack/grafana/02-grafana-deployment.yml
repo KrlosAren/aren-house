@@ -23,7 +23,7 @@ spec:
                   - key: kubernetes.io/hostname
                     operator: In
                     values:
-                      - rp1-master
+                      - rp3-node
       securityContext:
         fsGroup: 472
       initContainers:
@@ -33,6 +33,7 @@ spec:
           volumeMounts:
             - name: grafana-data
               mountPath: /var/lib/grafana
+      terminationGracePeriodSeconds: 120
       containers:
         - name: grafana
           image: grafana/grafana
@@ -53,16 +54,20 @@ spec:
               value: "false"
           resources:
             requests:
-              memory: "512Mi"
-              cpu: "200m"
+              memory: "1024Mi"
+              cpu: "300m"
             limits:
-              memory: "512Mi"
+              memory: "1024Mi"
               cpu: "500m"
           volumeMounts:
             - name: grafana-data
               mountPath: /var/lib/grafana
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboard-pods
+              mountPath: /var/lib/grafana/dashboards
       volumes:
         - name: grafana-data
           persistentVolumeClaim:
@@ -70,3 +75,9 @@ spec:
         - name: datasources
           configMap:
             name: grafana-datasources
+        - name: dashboard-provider
+          configMap:
+            name: grafana-dashboard-provider
+        - name: dashboard-pods
+          configMap:
+            name: grafana-dashboard-pods

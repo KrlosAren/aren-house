@@ -13,6 +13,15 @@ spec:
       labels:
         app: n8n
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - rp3-node
       securityContext:
         runAsUser: 1000
         runAsGroup: 1000
@@ -39,7 +48,7 @@ spec:
             - name: DB_POSTGRESDB_DATABASE
               value: "n8n"
             - name: DB_POSTGRESDB_USER
-              value: "admin"
+              value: "n8n_user"
             - name: DB_POSTGRESDB_PASSWORD
               valueFrom:
                 secretKeyRef:

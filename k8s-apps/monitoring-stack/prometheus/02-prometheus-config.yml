@@ -8,7 +8,9 @@ data:
   prometheus.yml: |
     global:
       scrape_interval: 30s
+      scrape_timeout: 10s
       evaluation_interval: 30s
+      sample_limit: 30000
 
     alerting:
       alertmanagers:
@@ -22,6 +24,7 @@ data:
     scrape_configs:
       # Métricas de la API server de k3s
       - job_name: 'kubernetes-apiservers'
+        sample_limit: 150000
         kubernetes_sd_configs:
           - role: endpoints
         scheme: https
@@ -32,9 +35,14 @@ data:
           - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
             action: keep
             regex: default;kubernetes;https
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            regex: 'apiserver_(request_total|request_duration_seconds.*|current_inflight_requests|dropped_requests_total)|etcd_(request_duration_seconds.*|object_counts)|process_(cpu_seconds_total|resident_memory_bytes)|up'
+            action: keep
 
       # Métricas de los nodos (kubelet)
       - job_name: 'kubernetes-nodes'
+        sample_limit: 150000
         kubernetes_sd_configs:
           - role: node
         scheme: https
@@ -45,9 +53,15 @@ data:
         relabel_configs:
           - action: labelmap
             regex: __meta_kubernetes_node_label_(.+)
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            regex: 'kubelet_(running_pods|running_containers|volume_stats.*|node_config_error|runtime_operations_total|runtime_operations_errors_total)|process_(cpu_seconds_total|resident_memory_bytes)|storage_operation_(duration_seconds.*|errors_total)|volume_manager_total_volumes|up'
+            action: keep
 
       # Métricas de los contenedores (cAdvisor integrado en kubelet)
       - job_name: 'kubernetes-cadvisor'
+        sample_limit: 80000
+        honor_timestamps: true
         kubernetes_sd_configs:
           - role: node
         scheme: https
@@ -59,9 +73,14 @@ data:
         relabel_configs:
           - action: labelmap
             regex: __meta_kubernetes_node_label_(.+)
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            regex: 'container_(cpu_usage_seconds_total|memory_working_set_bytes|network_receive_bytes_total|network_transmit_bytes_total|fs_usage_bytes|fs_limit_bytes)'
+            action: keep
 
       # Auto-descubrimiento de pods con annotation prometheus.io/scrape: "true"
       - job_name: 'kubernetes-pods'
+        sample_limit: 80000
         kubernetes_sd_configs:
           - role: pod
         relabel_configs:

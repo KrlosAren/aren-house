@@ -341,7 +341,7 @@ Editar `/etc/ufw/sysctl.conf`:
 net/ipv4/ip_forward=1
 ```
 
-### Configurar NAT en UFW
+### Configurar NAT y FORWARD explícito en UFW
 
 Editar `/etc/ufw/before.rules`, agregar al inicio (antes de `*filter`):
 ```bash
@@ -355,7 +355,16 @@ Editar `/etc/ufw/before.rules`, agregar al inicio (antes de `*filter`):
 -A PREROUTING -i enx00e04c683da2 -p tcp --dport 80 -j DNAT --to-destination 10.0.0.50:80
 -A PREROUTING -i enx00e04c683da2 -p tcp --dport 443 -j DNAT --to-destination 10.0.0.50:443
 COMMIT
+
+# FORWARD explícito: no confiar solo en DEFAULT_FORWARD_POLICY
+# (kube-router puede interceptar el tráfico antes de que el policy se evalúe)
+*filter
+-A FORWARD -i eth0 -o enx00e04c683da2 -j ACCEPT
+-A FORWARD -i enx00e04c683da2 -o eth0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+COMMIT
 ```
+
+**Importante:** `before.rules` soporta múltiples tablas (`*nat`, `*filter`) en el mismo archivo separadas por `COMMIT`. El playbook `firewall.yml` gestiona estas reglas automáticamente via `blockinfile`.
 
 ### DNAT: Acceso WAN a servicios k8s
 
@@ -495,6 +504,60 @@ El playbook `firewall.yml` permite todo el tráfico desde la LAN en eth0 (`ufw a
 ### Tailscale
 
 Tailscale maneja su propio tunnel y no necesita puertos explícitos en UFW. Sin embargo, el playbook `k3s.yml` agrega reglas FORWARD para la interfaz `tailscale0` para permitir que el tráfico de kubectl via Tailscale llegue al API Server.
+
+---
+
+## Conflicto UFW + k3s + netfilter-persistent
+
+### El problema
+
+rp1-master tiene **tres componentes que modifican iptables al arrancar**, y pueden pisarse entre sí:
+
+```
+Boot rp1:
+  1. UFW          → carga /etc/ufw/before.rules (MASQUERADE, FORWARD)
+  2. k3s          → kube-router + Flannel insertan cadenas en FORWARD y POSTROUTING
+  3. Tailscale    → agrega ts-input, ts-forward, ts-postrouting
+```
+
+Si se añade `netfilter-persistent` como cuarto participante (via `sudo netfilter-persistent save`), hace un `iptables-restore` que puede **sobrescribir** las reglas que UFW ya cargó, dejando sin efecto MASQUERADE o las reglas FORWARD.
+
+### Por qué DEFAULT_FORWARD_POLICY no es suficiente
+
+`DEFAULT_FORWARD_POLICY="ACCEPT"` en `/etc/default/ufw` establece la política de la cadena FORWARD a ACCEPT. Pero kube-router inserta `KUBE-ROUTER-FORWARD` **en la primera posición** del FORWARD chain. Si kube-router tiene un DROP implícito para tráfico no-pod, el tráfico LAN→WAN puede ser bloqueado antes de que el policy ACCEPT se evalúe.
+
+**Por eso las reglas FORWARD deben ser explícitas en `before.rules`**, no solo implícitas via policy.
+
+### Reglas correctas en before.rules
+
+El playbook `firewall.yml` inyecta en `/etc/ufw/before.rules`:
+
+```
+*nat
+-A POSTROUTING -s 10.0.0.0/24 -o enx00e04c683da2 -j MASQUERADE
+...
+COMMIT
+
+*filter
+# FORWARD explícito: sobrevive incluso si kube-router interfiere
+-A FORWARD -i eth0 -o enx00e04c683da2 -j ACCEPT
+-A FORWARD -i enx00e04c683da2 -o eth0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+COMMIT
+```
+
+### Nunca usar netfilter-persistent junto con UFW
+
+`netfilter-persistent` guarda un snapshot de TODAS las reglas iptables del momento (incluyendo las dinámicas de k3s, docker y Tailscale). Al restaurar ese snapshot en el próximo boot, puede:
+- Sobrescribir reglas de UFW
+- Cargar reglas stale de k3s antes de que k3s arranque (causando conflictos)
+
+**UFW ya es el mecanismo de persistencia**. Sus reglas se guardan en `/etc/ufw/before.rules` y se cargan en cada boot. No se necesita `netfilter-persistent`.
+
+Si se ejecutó `netfilter-persistent save` por error:
+```bash
+sudo systemctl disable netfilter-persistent
+sudo rm -f /etc/iptables/rules.v4 /etc/iptables/rules.v6
+```
 
 ---
 
@@ -640,6 +703,43 @@ sudo ufw allow in on eth0 from 10.0.0.0/24
 1. Verificar regla FORWARD: `sudo iptables -L FORWARD -n -v`
 2. Verificar NAT: `sudo iptables -t nat -L POSTROUTING -n -v`
 3. Verificar IP forwarding: `cat /proc/sys/net/ipv4/ip_forward` (debe ser 1)
+
+### Nodos sin internet después de reboot de rp1
+
+**Síntoma:** rp2/rp3 pierden internet cada vez que rp1 se reinicia. Funciona si se corre manualmente:
+```bash
+sudo iptables -t nat -A POSTROUTING -o enx00e04c683da2 -j MASQUERADE
+sudo iptables -A FORWARD -i eth0 -o enx00e04c683da2 -j ACCEPT
+```
+
+**Causa más probable:** `netfilter-persistent` sobrescribió las reglas de UFW en el boot. Ver sección "Conflicto UFW + k3s + netfilter-persistent".
+
+**Diagnóstico:**
+```bash
+# ¿La regla MASQUERADE de UFW está activa? (debe mostrar src 10.0.0.0/24)
+sudo iptables -t nat -L POSTROUTING -n -v | grep enx
+
+# ¿Hay un snapshot de netfilter-persistent?
+ls /etc/iptables/rules.v4
+
+# ¿Está habilitado netfilter-persistent?
+systemctl is-enabled netfilter-persistent 2>/dev/null
+```
+
+**Fix permanente:**
+```bash
+# 1. Eliminar netfilter-persistent
+sudo systemctl disable netfilter-persistent
+sudo rm -f /etc/iptables/rules.v4 /etc/iptables/rules.v6
+
+# 2. Re-aplicar playbook para asegurar before.rules con FORWARD explícito
+cd homelab-ansible
+ansible-playbook playbooks/firewall.yml --limit gateway --tags nat
+
+# 3. Verificar que las reglas están activas
+sudo iptables -t nat -L POSTROUTING -n -v | grep 10.0.0
+sudo iptables -L FORWARD -n | grep eth0
+```
 
 ### WireGuard no conecta
 

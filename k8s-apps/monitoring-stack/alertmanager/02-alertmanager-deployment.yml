@@ -13,8 +13,7 @@ spec:
       labels:
         app: alertmanager
     spec:
-      nodeSelector:
-        kubernetes.io/hostname: rp1-master
+      terminationGracePeriodSeconds: 120
       containers:
         - name: alertmanager
           image: prom/alertmanager:latest

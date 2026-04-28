@@ -1,300 +1,412 @@
 # CLAUDE.md
 
-Guía para Claude Code cuando trabaja en este repositorio.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+Homelab con 3 Raspberry Pi 5. `rp1-master` actúa como gateway/router/k3s control plane. `rp2-node` y `rp3-node` son workers con SSD local.
 
-Homelab con 3 Raspberry Pi 5. Una Pi actúa como gateway/router y las otras dos como workers con SSD local. Incluye un cluster k3s con MetalLB para LoadBalancer.
+**Usuario:** Experiencia sólida en Docker, aprendiendo Kubernetes paso a paso. Migra servicios Docker → k3s de forma gradual.
 
-**Contexto del usuario:** Experiencia sólida en Docker, aprendiendo Kubernetes (k3s) paso a paso. Actualmente migrando servicios Docker al cluster k3s de forma gradual.
+---
 
-## Architecture
+## Comandos comunes
+
+```bash
+# Ansible — correr desde homelab-ansible/
+cd homelab-ansible
+ansible-playbook playbooks/<playbook>.yml --check   # dry-run
+ansible-playbook playbooks/<playbook>.yml --limit gateway
+ansible-playbook playbooks/<playbook>.yml --tags nat,forward
+
+# kubectl
+kubectl get pods -A
+kubectl logs -n <ns> <pod> --tail=50
+kubectl rollout restart deployment/<name> -n <ns>
+kubectl apply -f k8s-apps/<app>/
+
+# SSH a nodos
+ssh -J admin@100.107.98.121 admin@10.0.0.2   # via Tailscale
+ssh admin@10.0.0.1                            # gateway directo (si en LAN)
+
+# Verificar estado del cluster
+kubectl get nodes -o wide
+kubectl get svc -A | grep LoadBalancer
 ```
-Internet (CGNAT) → Modem ISP (192.168.1.x/24)
-                        │
-                   [USB-ETH] enx00e04c683da2 (IP dinámica DHCP del ISP)
-                        │
-                   rp1-master (Gateway + k3s Control Plane)
-                   WAN: dinámica (192.168.1.x) / LAN: 10.0.0.1 (estática)
-                        │
-                   [eth0] LAN 10.0.0.0/24
-                        │
-                   Switch TP-Link SG105PE (10.0.0.5)
-                        │
-                   ├── rp2-node (10.0.0.2) - k3s worker, SSD 500GB, IP estática via netplan
-                   └── rp3-node (10.0.0.3) - k3s worker, SSD 500GB, IP estática via netplan
 
-Tailscale VPN: 100.x.x.x (mesh, bypasses CGNAT) - primary
-WireGuard VPN: 10.0.1.0/24 (legacy/backup)
+---
+
+## Arquitectura de red
+
+```
+Internet (CGNAT)
+      │
+ Modem ISP (192.168.1.x/24)
+      │
+ enx00e04c683da2  ← WAN, IP dinámica DHCP del ISP (actualmente 192.168.1.89)
+      │
+ rp1-master (10.0.0.1) ← Gateway + k3s control plane
+      │
+ eth0 LAN 10.0.0.0/24
+      │
+ Switch TP-Link (10.0.0.5)
+      ├── rp2-node  10.0.0.2  k3s worker, SSD 500GB
+      └── rp3-node  10.0.0.3  k3s worker, SSD 500GB
+
+Tailscale VPN: 100.x.x.x (mesh, bypasses CGNAT)
+  rp1-master Tailscale IP: 100.107.98.121
+  Mac Tailscale IP:        100.70.50.39
 ```
 
-**Nota:** La IP WAN de rp1 es dinámica (DHCP del ISP). Usar Tailscale o verificar IP actual con `ip addr show enx00e04c683da2` antes de conectar.
-
-## Devices
-
-| Device | IP | MAC | Role |
-|--------|-----|-----|------|
-| rp1-master | 10.0.0.1 (LAN estática) | 2c:cf:67:a9:b8:51 | Gateway, k3s master, SSD 500GB |
-| rp2-node | 10.0.0.2 (netplan estática) | 2c:cf:67:88:9e:f5 | k3s worker, SSD 500GB |
-| rp3-node | 10.0.0.3 (netplan estática) | 2c:cf:67:a9:b9:13 | k3s worker, SSD 500GB |
+| Device | IP LAN | MAC | Rol |
+|--------|--------|-----|-----|
+| rp1-master | 10.0.0.1 | 2c:cf:67:a9:b8:51 | Gateway, k3s master |
+| rp2-node | 10.0.0.2 | 2c:cf:67:88:9e:f5 | k3s worker |
+| rp3-node | 10.0.0.3 | 2c:cf:67:a9:b9:13 | k3s worker |
 | switch | 10.0.0.5 | ec:75:0c:ff:fc:d6 | TP-Link SG105PE |
-
-## Networks
 
 | Red | Rango | Uso |
 |-----|-------|-----|
-| Nodos (LAN) | 10.0.0.0/24 | Red física entre RPis |
-| Pods | 10.42.0.0/16 | Red interna de pods (Flannel) |
-| Services | 10.43.0.0/16 | ClusterIPs |
+| LAN | 10.0.0.0/24 | Red física |
+| DHCP | 10.0.0.100-200 | Clientes dinámicos |
 | MetalLB | 10.0.0.50-60 | LoadBalancer IPs |
-| DHCP | 10.0.0.100-200 | Clientes DHCP dinámico (switch, dispositivos futuros) |
+| Pods | 10.42.0.0/16 | Flannel |
+| Services | 10.43.0.0/16 | ClusterIPs |
 
-## Kubernetes (k3s)
-
-### Ingress y flujo de tráfico
+**IP WAN de rp1 es dinámica.** Verificar antes de conectar:
+```bash
+tailscale status | grep rp1-master   # via Tailscale (preferido)
+ssh admin@10.0.0.1 "ip addr show enx00e04c683da2 | grep inet"
 ```
-Cliente → DNS (dnsmasq) → IP WAN rp1 → DNAT → 10.0.0.50 → MetalLB → Traefik k3s → Ingress → Service → Pod
-```
 
-- `*.homelab.local` → 10.0.0.1 (Traefik Docker, servicios legacy)
-- `*.k8s.homelab.local` → IP WAN rp1 (DNAT → MetalLB 10.0.0.50, Traefik k3s)
-- dnsmasq escucha en LAN (eth0) + WAN (enx00e04c683da2), DHCP solo en LAN
-- DNAT en firewall redirige WAN :80/:443 → 10.0.0.50 (MetalLB)
+---
 
-Para exponer un servicio nuevo en k8s:
-1. Crear Service (ClusterIP) apuntando a los pods
-2. Crear Ingress con host `miapp.k8s.homelab.local`
-3. DNS ya resuelve `*.k8s.homelab.local` → IP WAN rp1 → DNAT → MetalLB
+## Configuraciones críticas
 
-### Storage
-- **local-path** (provisioner incluido en k3s) como StorageClass por defecto
-- **Longhorn** instalado, usado selectivamente (e.g., n8n PVC)
-- Workloads con I/O → `nodeSelector: kubernetes.io/hostname: rp3-node` (SSD)
-- PostgreSQL fuera del cluster en Docker+systemd (ADR-013)
+### k3s: flannel-iface (OBLIGATORIO en master)
 
-### Configuración crítica
-
-**/etc/rancher/k3s/config.yaml (solo master)**
+`/etc/rancher/k3s/config.yaml` en rp1-master:
 ```yaml
 flannel-iface: eth0
 ```
-rp1-master tiene múltiples interfaces (eth0 + USB ethernet). Sin esto, Flannel elige la IP incorrecta y los pods entre nodos no se comunican.
+rp1 tiene múltiples interfaces. Sin esto, Flannel elige la IP WAN y los pods entre nodos no se comunican.
 
-### Node Labels
-```bash
-kubectl label nodes rp1-master storage=ssd storage-size=500gb
-kubectl label nodes rp2-node storage=ssd storage-size=500gb
-kubectl label nodes rp3-node storage=ssd storage-size=500gb
+### dnsmasq: interfaces
+
+dnsmasq escucha en **tres interfaces** — si falta alguna, el DNS falla para ese cliente:
+
+```ini
+interface=eth0           # LAN — DHCP + DNS
+interface=enx00e04c683da2  # WAN — solo DNS
+interface=tailscale0     # Tailscale — solo DNS (Mac y otros clientes VPN)
+no-dhcp-interface=enx00e04c683da2
+no-dhcp-interface=tailscale0
 ```
 
-## Services on rp1-master
+Template: `homelab-ansible/roles/dnsmasq/templates/dnsmasq.conf.j2`
 
-- **dnsmasq**: DHCP (dispositivos LAN), DNS (.homelab.local, .k8s.homelab.local)
-- **k3s server**: Kubernetes control plane
-- **Traefik (Docker)**: Reverse proxy para servicios Docker (:80/:443)
-- **Tailscale**: VPN mesh (subnet router for 10.0.0.0/24)
-- **NAT**: iptables MASQUERADE
-- **UFW**: Firewall
-- **PostgreSQL (Docker)**: Base de datos para apps k8s (puerto 5432)
-- **GitHub Actions Runner**: Self-hosted CI/CD runner
+### DNS desde Mac (Tailscale)
 
-**Nota:** NFS/TFTP siguen instalados en rp1 pero ya no están en uso activo (los nodos bootean desde SSD local).
+Los archivos `/etc/resolver/` deben apuntar a la IP Tailscale de rp1, no a 10.0.0.1:
+```
+/etc/resolver/homelab.local      → nameserver 100.107.98.121
+/etc/resolver/k8s.homelab.local  → nameserver 100.107.98.121
+```
+Si la IP Tailscale cambia (reinstalación): `tailscale status | grep rp1-master` y actualizar ambos archivos.
 
-## Networking: IPs estáticas en nodos
+### Firewall: UFW + k3s no usar netfilter-persistent
 
-Los nodos rp2 y rp3 usan IP estática via netplan — **no dependen de DHCP**.
+Tres componentes modifican iptables al arrancar: **UFW**, **k3s** (kube-router + Flannel), **Tailscale**. Pueden pisarse entre sí.
 
-**Motivo:** Un bug en rp1 causa que los DHCP OFFERs a `255.255.255.255` sean enrutados por la interfaz WAN en vez de eth0, debido a la interacción entre k3s/kube-router y la tabla de routing `local` del kernel. Ver ADR-015.
+**Regla**: nunca usar `netfilter-persistent` junto con UFW. Son mecanismos de persistencia incompatibles — `netfilter-persistent save` guarda un snapshot que sobrescribe las reglas de UFW en el próximo boot.
 
-Netplan de nodos (`/etc/netplan/01-network.yaml`):
+Las reglas NAT/FORWARD van en `/etc/ufw/before.rules` (gestionado por `playbooks/firewall.yml`). Las reglas FORWARD deben ser **explícitas** — no confiar solo en `DEFAULT_FORWARD_POLICY="ACCEPT"` porque kube-router se inserta primero en la cadena.
+
+Si se ejecutó `netfilter-persistent save` por error:
+```bash
+sudo systemctl disable netfilter-persistent
+sudo rm -f /etc/iptables/rules.v4 /etc/iptables/rules.v6
+ansible-playbook playbooks/firewall.yml --limit gateway --tags nat
+```
+
+### IPs estáticas en nodos (netplan)
+
+rp2 y rp3 usan IP estática via netplan — **no dependen de DHCP**. Un bug en rp1 enruta los DHCP broadcasts a la interfaz WAN (ADR-015).
+
+`/etc/netplan/01-network.yaml` en cada nodo:
 ```yaml
 network:
   version: 2
   ethernets:
     eth0:
       dhcp4: false
-      addresses:
-        - 10.0.0.X/24  # .2 para rp2, .3 para rp3
-      routes:
-        - to: default
-          via: 10.0.0.1
+      addresses: [10.0.0.X/24]
+      routes: [{to: default, via: 10.0.0.1}]
       nameservers:
-        addresses:
-          - 10.0.0.1
-        search:
-          - homelab.local
+        addresses: [10.0.0.1]
+        search: [homelab.local]
 ```
+
+---
+
+## Flujo de tráfico k8s
+
+```
+Cliente → DNS → *.k8s.homelab.local → 192.168.1.89 (WAN rp1)
+       → DNAT :80/:443 → 10.0.0.50 (MetalLB)
+       → Traefik k3s → Ingress → Service → Pod
+```
+
+- `*.homelab.local` → 10.0.0.1 (Traefik Docker, servicios legacy)
+- `*.k8s.homelab.local` → IP WAN rp1 → DNAT → MetalLB 10.0.0.50
+
+Para exponer un servicio nuevo:
+1. `Service` (ClusterIP) apuntando a los pods
+2. `Ingress` con host `miapp.k8s.homelab.local`
+3. DNS ya resuelve automáticamente
+
+---
+
+## Storage
+
+| StorageClass | Provisioner | Uso |
+|---|---|---|
+| `local-path` (default) | rancher.io/local-path | Todas las apps stateful |
+
+- **Longhorn removido** (ADR-016) — causaba bloqueos de kernel en rp3 (iSCSI). Todos los PVCs migrados a `local-path`.
+- **local-path** usa `WaitForFirstConsumer` — el PVC permanece Pending hasta que un Pod lo use, esto es normal.
+- Los pods stateful tienen `nodeAffinity` explícita — si se mueven de nodo pierden sus datos.
+- Paths en workers: `/mnt/ssd` (SSD montado), `/mnt/ssd/rancher`, `/mnt/ssd/docker`
+
+| App | Nodo pinado | Tamaño |
+|-----|-------------|--------|
+| Prometheus | rp2-node | 20Gi |
+| Grafana | rp3-node | 5Gi |
+| n8n | rp3-node | 5Gi |
+| Registry | — | — |
+
+---
+
+## Servicios en rp1-master
+
+| Servicio | Tipo | Función |
+|----------|------|---------|
+| dnsmasq | systemd | DHCP (LAN) + DNS (.homelab.local, .k8s.homelab.local) |
+| k3s server | systemd | Kubernetes control plane |
+| Traefik | Docker | Reverse proxy servicios legacy (:80/:443) |
+| Tailscale | systemd | VPN mesh + subnet router (10.0.0.0/24) |
+| UFW | systemd | Firewall — reglas en /etc/ufw/before.rules |
+| PostgreSQL | Docker + systemd | Base de datos para apps k8s (5432) |
+| GitHub Actions Runner | systemd | CI/CD self-hosted |
+
+NFS/TFTP instalados pero inactivos (nodos bootean desde SSD local).
+
+---
+
+## Apps k8s desplegadas
+
+| App | Namespace | StorageClass | Ingress |
+|-----|-----------|-------------|---------|
+| Prometheus | monitoring | local-path (20Gi, rp2) | prometheus.k8s.homelab.local |
+| Grafana | monitoring | local-path (5Gi, rp3) | grafana.k8s.homelab.local |
+| Alertmanager | monitoring | local-path (2Gi) | alertmanager.k8s.homelab.local |
+| Blackbox Exporter | monitoring | — | — |
+| kube-state-metrics | monitoring | — | — |
+| n8n | n8n-system | local-path (5Gi, rp3) | n8n.k8s.homelab.local |
+| Registry | registry | local-path | registry.k8s.homelab.local |
+| kite | kube-system | — | kite.k8s.homelab.local |
+
+---
+
+## CI/CD
+
+`.github/workflows/test-app.yml` — build y push al registry local en cada push a `main` que modifica `apps/**`.
+
+- Corre en self-hosted runner (`[self-hosted, homelab]`) en rp1-master
+- Security gate previo verifica que el actor sea el owner del repo (protección contra fork PRs maliciosos)
+- Pushea a `registry.k8s.homelab.local` con tags: SHA completo, SHA corto, `latest`
+- Para agregar una nueva app: agregar detección en `detect-changes` y un nuevo job `build-<app>`
+
+---
+
+## Docker Stacks → k8s
+
+| Stack | Estado |
+|-------|--------|
+| `stacks/observability/` | Migrado → `k8s-apps/monitoring-stack/` |
+| `stacks/n8n/` | Migrado → `k8s-apps/n8n/` |
+| `stacks/registry/` | Migrado → `k8s-apps/registry/` |
+| `stacks/pihole/` | En Docker, pendiente migrar |
+| `stacks/router/` | Traefik Docker, coexiste con Traefik k3s |
+| `stacks/storage-apps/` | PostgreSQL en Docker+systemd (ADR-013, fuera del cluster) |
+
+---
 
 ## Ansible
 
-### Conectividad
-Ansible se ejecuta desde Mac. Los nodos (10.0.0.x) son accesibles vía ProxyJump por rp1:
+Ansible corre desde Mac. Nodos accesibles via ProxyJump por rp1.
 
-```yaml
-# inventory/inventory.yml
-ansible_ssh_common_args: '-o ProxyJump=admin@<IP_WAN_rp1>'
-```
-
-**Importante:** La IP WAN de rp1 cambia en cada reboot del ISP. Verificar antes de correr playbooks:
-```bash
-# Ver IP actual de rp1
-ssh admin@<ultima_ip_conocida> "ip addr show enx00e04c683da2 | grep inet"
-```
-
-### Playbooks
+**Antes de correr playbooks:** verificar IP WAN de rp1 en `inventory/inventory.yml`.
 
 | Playbook | Función | Target |
 |----------|---------|--------|
-| `gateway.yml` | Configuración completa de rp1-master | gateway |
-| `common.yml` | Config base (timezone, NTP, locales, paquetes) | all |
+| `gateway.yml` | Config completa rp1 (dnsmasq, WireGuard, NFS) | gateway |
+| `common.yml` | Timezone, NTP, paquetes base | all |
+| `firewall.yml` | UFW + NAT rules en before.rules | all |
 | `k3s.yml` | Instalar k3s server y agents | all |
-| `metallb.yml` | Instalar MetalLB (pool 10.0.0.50-60) | master |
-| `firewall.yml` | Configurar UFW | all |
 | `docker.yml` | Instalar Docker | nodes |
-| `local-storage.yml` | Montar discos locales en nodos | nodes |
-| `setup-ssh.yml` | Distribuir claves SSH de rp1 a nodos | nodes |
-| `wireguard.yml` | Configurar WireGuard VPN | gateway |
-| `tailscale.yml` | Configurar Tailscale VPN mesh | all |
-| `duckdns.yml` | Configurar DuckDNS (IP pública) | gateway |
-| `node-exporter.yml` | Instalar Prometheus node_exporter | all |
-| `registry.yml` | Registry privado local | gateway |
-| `update-nodes.yml` | Actualizar paquetes | nodes |
-| `node-info.yml` | Info de nodos | all |
+| `local-storage.yml` | Montar SSD en /mnt/ssd | nodes |
+| `longhorn.yml` | Dependencias OS de Longhorn (iSCSI) | all |
+| `longhorn-storage.yml` | Crear /var/lib/longhorn y /mnt/ssd/longhorn | all |
+| `dns-client.yml` | resolv.conf estático en workers (10.0.0.1) | nodes |
+| `tailscale.yml` | VPN mesh | all |
+| `node-exporter.yml` | Prometheus metrics | all |
+| `registry.yml` | Registry privado + registries.yaml en nodos | gateway |
+| `github-runner.yml` | Self-hosted CI/CD runner | gateway |
+| `update-nodes.yml` | apt upgrade | nodes |
 | `reboot-nodes.yml` | Reinicio controlado | all |
-| `github-runner.yml` | Instalar GitHub Actions runner | gateway |
-| `longhorn.yml` | Instalar dependencias Longhorn (iSCSI) | all |
-| `longhorn-storage.yml` | Crear directorios storage Longhorn | all |
-| `dns-client.yml` | Configurar resolv.conf estático en workers | nodes |
 
-**Playbooks obsoletos (netboot):** `setup-netboot-server.yml`, `prepare-node.yml`, `update-kernel.yml`, `install-basic-tools-nodes.yml`
+**Obsoletos (netboot):** `setup-netboot-server.yml`, `prepare-node.yml`, `update-kernel.yml`, `install-basic-tools-nodes.yml`
 
-## Docker Stacks → k8s Migration
+---
 
-| Stack | Estado | k8s |
-|-------|--------|-----|
-| `stacks/observability/` | Migrado a k8s (Prometheus + Grafana) | `k8s-apps/monitoring-stack/` |
-| `stacks/n8n/` | Migrado a k8s | `k8s-apps/n8n/` |
-| `stacks/pihole/` | En Docker | Pendiente |
-| `stacks/registry/` | Migrado a k8s | `k8s-apps/registry/` |
-| `stacks/router/` | Traefik Docker | Coexiste con Traefik k3s |
-| `stacks/storage-apps/` | PostgreSQL en Docker+systemd | Fuera del cluster (ADR-013) |
+## Reglas de desarrollo
 
-## File Structure
-```
-aren-house/
-├── CLAUDE.md                  # Este archivo
-├── README.md                  # Overview del proyecto
-├── .github/workflows/         # GitHub Actions CI/CD
-│   └── test-app.yml           # Build & push al registry local
-├── apps/                      # Código fuente de aplicaciones
-│   └── test-app/              # Express app de prueba
-├── homelab-ansible/           # Automatización con Ansible
-│   ├── ansible.cfg
-│   ├── inventory/inventory.yml
-│   ├── playbooks/
-│   └── roles/                 # wireguard, dnsmasq, nfs
-├── k8s-apps/                  # Manifiestos de Kubernetes
-│   ├── longhorn/              # Ingress para Longhorn UI
-│   ├── metallb/               # Configuración MetalLB (IP pool)
-│   ├── monitoring-stack/      # Prometheus + Grafana en k8s
-│   ├── n8n/                   # n8n (Longhorn PVC)
-│   ├── registry/              # Docker Registry + UI
-│   ├── storage-learning/      # App de prueba nginx con PVC
-│   └── test-app/              # Test app (imagen del registry local)
-├── stacks/                    # Docker Compose stacks (en migración a k8s)
-└── docs/                      # Documentación
-    ├── decisions/             # ADRs (001-015)
-    ├── concepts/              # Teoría
-    ├── guides/                # How-to
-    ├── reference/             # Referencia rápida (IPs, ports, URLs, commands)
-    └── runbooks/              # Operaciones
-```
+### Código y configuración
+- Manifiestos k8s van en `k8s-apps/<nombre-app>/` con archivos numerados (`01-`, `02-`, etc.)
+- Playbooks Ansible se prueban con `--check` antes de aplicar en producción
+- Todos los nodos usan usuario `admin` con UID 1000
+- Commits en español
+
+### Documentación
+- Nuevas configuraciones se documentan en `docs/`
+- Decisiones arquitectónicas → ADR en `docs/decisions/` (nunca borrar, solo marcar superseded)
+- Guías de operación → `docs/guides/`
+- Runbooks para procedimientos → `docs/runbooks/`
+- Referencia rápida (IPs, URLs, comandos) → `docs/reference/`
+
+### Cuando agregar un ADR
+Siempre que se tome una decisión que afecte la arquitectura: cambio de tecnología, decisión de dónde correr un servicio, cambio en networking, storage, boot, etc.
+
+---
 
 ## Troubleshooting rápido
 
-### k3s: Pods no se comunican entre nodos
+### Pods en Pending — PVC no se bindea
 ```bash
-# Verificar IPs de Flannel (debe ser 10.0.0.x, NO IP WAN)
+kubectl describe pvc <nombre> -n <namespace>
+# Si dice "could not find StorageClass longhorn":
+helm install longhorn longhorn/longhorn -n longhorn-system --create-namespace
+```
+
+### k3s: pods no se comunican entre nodos
+```bash
+# Verificar que Flannel usa eth0 (no WAN)
 kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.flannel\.alpha\.coreos\.com/public-ip}{"\n"}{end}'
 # Fix: flannel-iface: eth0 en /etc/rancher/k3s/config.yaml + restart k3s
 ```
 
-### k3s: LoadBalancer en pending
+### Nodos sin internet después de reboot de rp1
+Causa probable: `netfilter-persistent` sobrescribió reglas UFW.
 ```bash
+# Diagnóstico (debe mostrar src 10.0.0.0/24)
+ssh admin@10.0.0.1 "sudo iptables -t nat -L POSTROUTING -n -v | grep enx"
+# Fix temporal
+ssh admin@10.0.0.1 "sudo iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -o enx00e04c683da2 -j MASQUERADE"
+# Fix permanente
+ansible-playbook playbooks/firewall.yml --limit gateway --tags nat
+ssh admin@10.0.0.1 "sudo systemctl disable netfilter-persistent; sudo rm -f /etc/iptables/rules.v4"
+```
+
+### DNS no resuelve desde Mac via Tailscale
+```bash
+tailscale status | grep rp1-master   # IP actual de rp1
+dig @100.107.98.121 grafana.k8s.homelab.local  # probar directo
+# Si timeout: dnsmasq no escucha en tailscale0 → ansible-playbook playbooks/gateway.yml
+# Si IP cambió: actualizar /etc/resolver/homelab.local y /etc/resolver/k8s.homelab.local
+```
+
+### Prometheus no responde HTTP (acepta TCP pero cuelga)
+Causa: goroutines acumuladas esperando timeouts al k8s API (`10.43.0.1:443`). Ocurre si el cluster arrancó con conectividad inestable.
+```bash
+kubectl rollout restart deployment/prometheus -n monitoring
+# Si se repite frecuentemente: aumentar scrape_timeout en 02-prometheus-config.yml
+```
+El config tiene `scrape_timeout: 10s` para limitar el bloqueo. Sin este valor, el default es igual al `scrape_interval` (30s) y los goroutines se acumulan hasta saturar el runtime.
+
+### LoadBalancer en pending
+```bash
+kubectl get pods -n metallb-system
 ansible-playbook playbooks/metallb.yml
 ```
 
-### Nodo sin internet
-```bash
-sudo iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -o enx00e04c683da2 -j MASQUERADE
-```
-
-### Nodo sin IP (DHCP no funciona)
-Los nodos usan IP estática via netplan. Si un nodo no tiene IP, verificar `/etc/netplan/01-network.yaml` y correr `sudo netplan apply`.
+### Nodo sin IP
+Los nodos usan netplan (no DHCP). Verificar `/etc/netplan/01-network.yaml` y `sudo netplan apply`.
 
 ### SSH a nodos desde Mac
 ```bash
-# Requiere ProxyJump por rp1
-ssh -J admin@<IP_WAN_rp1> admin@10.0.0.2  # rp2
-ssh -J admin@<IP_WAN_rp1> admin@10.0.0.3  # rp3
+ssh -J admin@100.107.98.121 admin@10.0.0.2   # via Tailscale (preferido)
+ssh -J admin@192.168.1.89 admin@10.0.0.2     # via WAN (si IP conocida)
 ```
 
-## Project History
+---
 
-Cada decisión está documentada con ADRs en `docs/decisions/`. Nunca borrar ADRs, solo marcar como superseded.
+## Estructura del repositorio
 
-### Evolución de Boot de nodos
-1. **Netboot PXE/NFS** (2025-12) → Workers bootean desde rp1 via red (ADR-006)
-2. **SSD local** (2026-04) → Cada nodo tiene Ubuntu en SSD propio, independiente de rp1 (ADR-014)
-3. **IPs estáticas netplan** (2026-04) → Sin dependencia de DHCP en nodos (ADR-015)
+```
+aren-house/
+├── CLAUDE.md
+├── .github/workflows/         # CI/CD (build & push al registry local)
+├── apps/
+│   └── test-app/              # Express app de prueba
+├── homelab-ansible/
+│   ├── inventory/inventory.yml
+│   ├── playbooks/
+│   └── roles/                 # dnsmasq, wireguard, nfs
+├── k8s-apps/
+│   ├── longhorn/              # Ingress Longhorn UI
+│   ├── metallb/               # IP pool config
+│   ├── monitoring-stack/      # Prometheus, Grafana, Alertmanager, Blackbox
+│   ├── n8n/
+│   ├── ntfy/                  # ntfy + ntfy-alertmanager bridge
+│   ├── registry/
+│   └── test-app/
+├── stacks/                    # Docker Compose (migración en curso)
+└── docs/
+    ├── decisions/             # ADRs 001-015
+    ├── concepts/
+    ├── guides/                # firewall.md, k3s-guide.md, network-troubleshooting.md
+    ├── reference/             # IPs, URLs, comandos
+    └── runbooks/
+```
 
-### Evolución de VPN
-1. **OpenVPN** → Descartado por complejidad (ADR-001)
-2. **WireGuard** (2025-12) → VPN primaria (ADR-001)
-3. **Tailscale** (2025-12) → Reemplazó WireGuard por CGNAT del ISP (ADR-008, ADR-009)
-
-### Evolución de Storage
-1. **NFS puro** → Docker usaba driver `vfs` sobre NFS (lento)
-2. **Storage local** (2025-12) → SSD local con overlay2 (ADR-007)
-3. **k3s storage local** (2026-01) → `/var/lib/rancher` → `/var/lib/rancher-local` (ADR-010)
-
-### Evolución de Orquestación
-1. **Docker standalone** (2025-12) → Sin orquestación
-2. **k3s** (2026-01) → Cluster k8s, menor consumo en ARM (ADR-012)
-
-### Evolución de Networking k8s
-1. **NodePort** → Puertos altos (30000+)
-2. **Traefik Docker como proxy** → Doble salto
-3. **MetalLB** (2026-01) → IPs reales 10.0.0.50-60 (ADR-011)
-
-### Evolución de Observabilidad
-1. **Docker standalone** (2025-12) → Prometheus + Grafana en Docker en rp2-node
-2. **k8s migration** (2026-02) → Prometheus + Grafana migrados a k8s con service discovery nativo
-
-## Development Guidelines
-
-- Documentar nuevas configuraciones en `docs/`
-- Escribir ADRs para decisiones arquitectónicas en `docs/decisions/`
-- Cuando se reemplaza una tecnología, documentar la evolución
-- Probar playbooks con `--check` antes de aplicar
-- Commits en español
-- Todos los nodos usan usuario `admin` con UID 1000
-- Manifiestos k8s nuevos van en `k8s-apps/<nombre-app>/` con archivos numerados
+---
 
 ## Pending
 
-- [x] k3s cluster - `playbooks/k3s.yml`
-- [x] MetalLB - `playbooks/metallb.yml`
-- [x] Prometheus en k8s - `k8s-apps/monitoring-stack/`
-- [x] Grafana en k8s - `k8s-apps/monitoring-stack/grafana/`
-- [x] Registry privado en k8s - `k8s-apps/registry/`
-- [x] n8n en k8s - `k8s-apps/n8n/`
-- [x] CI/CD con GitHub Actions - `.github/workflows/test-app.yml`
-- [x] Longhorn (dependencias instaladas) - `playbooks/longhorn.yml`
-- [x] Migración nodos a SSD local - ADR-014
-- [x] IPs estáticas en nodos - ADR-015
+- [x] k3s cluster
+- [x] MetalLB
+- [x] Prometheus + Grafana en k8s
+- [x] Alertmanager en k8s
+- [x] Registry privado en k8s
+- [x] n8n en k8s
+- [x] CI/CD con GitHub Actions (self-hosted runner)
+- [x] Longhorn instalado (Helm)
+- [ ] ntfy + ntfy-alertmanager bridge (manifiestos en `k8s-apps/ntfy/`, falta desplegar)
 - [ ] Loki (logs centralizados)
-- [ ] Cert-Manager (certificados TLS)
-- [ ] Alerting (Alertmanager)
+- [ ] Cert-Manager (TLS)
 - [ ] Migrar Pi-hole al cluster
-- [ ] IP estática WAN para rp1 (actualmente dinámica del ISP)
+- [ ] Split DNS en Tailscale Admin (eliminar /etc/resolver/ manual)
+- [ ] IP estática WAN para rp1
+
+---
+
+## Historial de decisiones clave
+
+| ADR | Decisión |
+|-----|----------|
+| 001 | Tailscale sobre WireGuard (CGNAT del ISP) |
+| 007 | Docker storage local (overlay2) sobre NFS (vfs) |
+| 011 | MetalLB para LoadBalancer real sobre NodePort |
+| 012 | k3s sobre k8s completo (ARM, menor consumo) |
+| 013 | PostgreSQL fuera del cluster (Docker+systemd) |
+| 014 | Boot desde SSD local sobre netboot PXE/NFS |
+| 015 | IPs estáticas via netplan sobre DHCP en nodos |

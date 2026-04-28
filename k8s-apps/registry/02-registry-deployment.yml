@@ -13,6 +13,16 @@ spec:
       labels:
         app: registry
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - rp2-node
+      terminationGracePeriodSeconds: 120
       containers:
         - name: registry
           image: registry:2.8.1

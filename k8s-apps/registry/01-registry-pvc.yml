@@ -4,7 +4,7 @@ metadata:
   name: registry-data
   namespace: registry
 spec:
-  storageClassName: longhorn
+  storageClassName: local-path
   accessModes:
     - ReadWriteOnce
   resources:

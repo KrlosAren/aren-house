@@ -23,32 +23,36 @@ spec:
                   - key: kubernetes.io/hostname
                     operator: In
                     values:
-                      - rp1-master
+                      - rp2-node
       securityContext:
         fsGroup: 65534
       initContainers:
         - name: fix-permissions
           image: busybox:1.37
-          command: ['sh', '-c', 'chown -R 65534:65534 /prometheus']
+          command: ["sh", "-c", "chown -R 65534:65534 /prometheus"]
           volumeMounts:
             - name: data
               mountPath: /prometheus
+      terminationGracePeriodSeconds: 120
       containers:
         - name: prometheus
           image: prom/prometheus:v3.2.1
           args:
-            - '--config.file=/etc/prometheus/prometheus.yml'
-            - '--storage.tsdb.path=/prometheus'
-            - '--storage.tsdb.retention.time=15d'
-            - '--web.enable-lifecycle'
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time=15d"
+            - "--storage.tsdb.retention.size=10GB"
+            - "--web.enable-lifecycle"
+            - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+            - "--web.console.templates=/usr/share/prometheus/consoles"
           ports:
             - containerPort: 9090
           resources:
             requests:
-              memory: "256Mi"
+              memory: "512Mi"
               cpu: "100m"
             limits:
-              memory: "512Mi"
+              memory: "1Gi"
               cpu: "500m"
           volumeMounts:
             - name: config

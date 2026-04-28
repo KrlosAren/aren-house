@@ -72,3 +72,25 @@ data:
             annotations:
               summary: "Nodo k8s no listo: {{ $labels.node }}"
               description: "El nodo {{ $labels.node }} no tiene condición Ready."
+          
+          - alert: LonghornDiskCritical
+            expr: |
+              longhorn_disk_health_attribute_raw{attribute="Program_Fail_Count"} > 0
+              or longhorn_disk_health_attribute_raw{attribute="Erase_Fail_Count"} > 0
+              or longhorn_disk_health_attribute_raw{attribute="Offline_Uncorrectable"} > 0
+              or longhorn_disk_health_attribute_raw{attribute="Current_Pending_ECC_Cnt"} > 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Error crítico en disco {{ $labels.node }}"
+              description: "Atributo {{ $labels.attribute }} = {{ $value }} en {{ $labels.disk }}"
+
+          - alert: LonghornUnexpectedPowerLoss
+            expr: longhorn_disk_health_attribute_raw{attribute="Unexpect_Power_Loss_Ct"} > 50
+            for: 1m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Muchos apagados bruscos en {{ $labels.node }}"
+              description: "{{ $value }} pérdidas de energía inesperadas detectadas"

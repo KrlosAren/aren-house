@@ -4,7 +4,7 @@ metadata:
   name: prometheus-data
   namespace: monitoring
 spec:
-  storageClassName: longhorn
+  storageClassName: local-path
   accessModes:
     - ReadWriteOnce
   resources:

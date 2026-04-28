@@ -1,0 +1,452 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-pods
+  namespace: monitoring
+data:
+  # TODO(human): En el panel "CPU Usado por Pod", busca "TODO_HUMAN_CPU_EXPR"
+  # y reemplázalo con la query PromQL para CPU por pod.
+  # Referencia: el panel de Memoria usa sum by + topk + filtros de container.
+  # La diferencia clave: CPU es un contador acumulativo → necesita rate().
+  pods-monitor.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "graphTooltip": 1,
+      "links": [],
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+          "id": 1,
+          "title": "🐳 Pods Overview",
+          "type": "row"
+        },
+        {
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": 0}]}
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 1},
+          "id": 2,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${datasource}"},
+              "expr": "count(kube_pod_info{namespace=~\"$namespace\"})",
+              "instant": true,
+              "legendFormat": ""
+            }
+          ],
+          "title": "Total Pods",
+          "type": "stat"
+        },
+        {
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": 0}]}
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 1},
+          "id": 3,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${datasource}"},
+              "expr": "count(kube_pod_status_phase{namespace=~\"$namespace\", phase=\"Running\"})",
+              "instant": true,
+              "legendFormat": ""
+            }
+          ],
+          "title": "Running",
+          "type": "stat"
+        },
+        {
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [{"color": "green", "value": 0}, {"color": "red", "value": 1}]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 1},
+          "id": 4,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${datasource}"},
+              "expr": "count(kube_pod_status_phase{namespace=~\"$namespace\", phase=~\"Pending|Failed|Unknown\"}) or vector(0)",
+              "instant": true,
+              "legendFormat": ""
+            }
+          ],
+          "title": "No Running",
+          "type": "stat"
+        },
+        {
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "thresholds": {"mode": "absolute", "steps": [{"color": "purple", "value": 0}]}
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 1},
+          "id": 5,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${datasource}"},
+              "expr": "count(count by (namespace) (kube_pod_info{namespace=~\"$namespace\"}))",
+              "instant": true,
+              "legendFormat": ""
+            }
+          ],
+          "title": "Namespaces",
+          "type": "stat"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5},
+          "id": 6,
+          "title": "📊 Detalle",
+          "type": "row"
+        },
+        {
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": [
+              {
+                "matcher": {"id": "byName", "options": "Restarts"},
+                "properties": [
+                  {"id": "custom.width", "value": 90},
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {"color": "green", "value": 0},
+                        {"color": "yellow", "value": 5},
+                        {"color": "red", "value": 20}
+                      ]
+                    }
+                  },
+                  {"id": "custom.displayMode", "value": "color-background"}
+                ]
+              }
+            ]
+          },
+          "gridPos": {"h": 9, "w": 12, "x": 0, "y": 6},
+          "id": 7,
+          "options": {
+            "sortBy": [{"desc": true, "displayName": "Restarts"}],
+            "showHeader": true
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${datasource}"},
+              "expr": "kube_pod_container_status_restarts_total{namespace=~\"$namespace\"}",
+              "format": "table",
+              "instant": true,
+              "legendFormat": ""
+            }
+          ],
+          "title": "Restarts por Pod",
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "job": true,
+                  "instance": true
+                },
+                "renameByName": {
+                  "namespace": "Namespace",
+                  "pod": "Pod",
+                  "container": "Container",
+                  "Value": "Restarts"
+                },
+                "indexByName": {
+                  "Namespace": 0,
+                  "Pod": 1,
+                  "Container": 2,
+                  "Restarts": 3
+                }
+              }
+            }
+          ],
+          "type": "table"
+        },
+        {
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 9, "w": 12, "x": 12, "y": 6},
+          "id": 8,
+          "options": {
+            "displayMode": "gradient",
+            "orientation": "horizontal",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "showUnfilled": true,
+            "minVizHeight": 16
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${datasource}"},
+              "expr": "sort_desc(count by (namespace) (kube_pod_info{namespace=~\"$namespace\"}))",
+              "instant": true,
+              "legendFormat": "{{namespace}}"
+            }
+          ],
+          "title": "Pods por Namespace",
+          "type": "bargauge"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 15},
+          "id": 9,
+          "title": "📈 Recursos",
+          "type": "row"
+        },
+        {
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"lineWidth": 2, "showPoints": "never"},
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 9, "w": 24, "x": 0, "y": 16},
+          "id": 10,
+          "options": {
+            "legend": {
+              "calcs": ["mean", "max"],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${datasource}"},
+              "expr": "topk(10, sum by (pod, namespace) (container_memory_working_set_bytes{namespace=~\"$namespace\", container!=\"\", container!=\"POD\"}))",
+              "legendFormat": "{{namespace}}/{{pod}}"
+            }
+          ],
+          "title": "Memoria Usada por Pod",
+          "type": "timeseries"
+        },
+        {
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"lineWidth": 2, "showPoints": "never"},
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 9, "w": 24, "x": 0, "y": 25},
+          "id": 11,
+          "options": {
+            "legend": {
+              "calcs": ["mean", "max"],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${datasource}"},
+              "expr": "TODO_HUMAN_CPU_EXPR",
+              "legendFormat": "{{namespace}}/{{pod}}"
+            }
+          ],
+          "title": "CPU Usado por Pod",
+          "type": "timeseries"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 34},
+          "id": 12,
+          "title": "💾 Storage",
+          "type": "row"
+        },
+        {
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": [
+              {
+                "matcher": {"id": "byName", "options": "Estado"},
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "Bound":   {"color": "green",  "index": 0, "text": "Bound"},
+                          "Pending": {"color": "yellow", "index": 1, "text": "Pending"},
+                          "Lost":    {"color": "red",    "index": 2, "text": "Lost"}
+                        }
+                      }
+                    ]
+                  },
+                  {"id": "custom.displayMode", "value": "color-background"},
+                  {"id": "custom.width", "value": 100}
+                ]
+              },
+              {
+                "matcher": {"id": "byName", "options": "StorageClass"},
+                "properties": [{"id": "custom.width", "value": 130}]
+              }
+            ]
+          },
+          "gridPos": {"h": 9, "w": 14, "x": 0, "y": 35},
+          "id": 13,
+          "options": {"showHeader": true},
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${datasource}"},
+              "expr": "kube_persistentvolumeclaim_status_phase{namespace=~\"$namespace\"} == 1",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "PVCs — Estado",
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "job": true,
+                  "instance": true,
+                  "Value": true
+                },
+                "renameByName": {
+                  "namespace": "Namespace",
+                  "persistentvolumeclaim": "PVC",
+                  "phase": "Estado"
+                },
+                "indexByName": {
+                  "Namespace": 0,
+                  "PVC": 1,
+                  "Estado": 2
+                }
+              }
+            }
+          ],
+          "type": "table"
+        },
+        {
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 9, "w": 10, "x": 14, "y": 35},
+          "id": 14,
+          "options": {
+            "displayMode": "gradient",
+            "orientation": "horizontal",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "showUnfilled": true,
+            "minVizHeight": 16
+          },
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${datasource}"},
+              "expr": "sort_desc(kube_persistentvolumeclaim_resource_requests_storage_bytes{namespace=~\"$namespace\"})",
+              "instant": true,
+              "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}"
+            }
+          ],
+          "title": "PVCs — Tamaño",
+          "type": "bargauge"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 39,
+      "tags": ["kubernetes", "pods", "homelab"],
+      "templating": {
+        "list": [
+          {
+            "current": {},
+            "hide": 0,
+            "includeAll": false,
+            "label": "Datasource",
+            "name": "datasource",
+            "options": [],
+            "query": "prometheus",
+            "refresh": 1,
+            "type": "datasource"
+          },
+          {
+            "current": {"selected": true, "text": ["All"], "value": ["$__all"]},
+            "datasource": {"type": "prometheus", "uid": "${datasource}"},
+            "definition": "label_values(kube_pod_info, namespace)",
+            "hide": 0,
+            "includeAll": true,
+            "label": "Namespace",
+            "multi": true,
+            "name": "namespace",
+            "query": {
+              "query": "label_values(kube_pod_info, namespace)",
+              "refId": "StandardVariableQuery"
+            },
+            "refresh": 2,
+            "sort": 1,
+            "type": "query"
+          }
+        ]
+      },
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "Pods Monitor",
+      "uid": "pods-monitor-homelab",
+      "version": 1
+    }
