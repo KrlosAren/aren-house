@@ -211,7 +211,8 @@ NFS/TFTP instalados pero inactivos (nodos bootean desde SSD local).
 | Blackbox Exporter | monitoring | — | — |
 | kube-state-metrics | monitoring | — | — |
 | n8n | n8n-system | local-path (5Gi, rp3) | n8n.k8s.homelab.local |
-| Registry | registry | local-path | registry.k8s.homelab.local |
+| Registry | registry | local-path (rp2) | registry.k8s.homelab.local |
+| ntfy | ntfy-system | local-path | ntfy.k8s.homelab.local (pendiente desplegar) |
 | kite | kube-system | — | kite.k8s.homelab.local |
 
 ---
@@ -254,8 +255,6 @@ Ansible corre desde Mac. Nodos accesibles via ProxyJump por rp1.
 | `k3s.yml` | Instalar k3s server y agents | all |
 | `docker.yml` | Instalar Docker | nodes |
 | `local-storage.yml` | Montar SSD en /mnt/ssd | nodes |
-| `longhorn.yml` | Dependencias OS de Longhorn (iSCSI) | all |
-| `longhorn-storage.yml` | Crear /var/lib/longhorn y /mnt/ssd/longhorn | all |
 | `dns-client.yml` | resolv.conf estático en workers (10.0.0.1) | nodes |
 | `tailscale.yml` | VPN mesh | all |
 | `node-exporter.yml` | Prometheus metrics | all |
@@ -264,7 +263,7 @@ Ansible corre desde Mac. Nodos accesibles via ProxyJump por rp1.
 | `update-nodes.yml` | apt upgrade | nodes |
 | `reboot-nodes.yml` | Reinicio controlado | all |
 
-**Obsoletos (netboot):** `setup-netboot-server.yml`, `prepare-node.yml`, `update-kernel.yml`, `install-basic-tools-nodes.yml`
+**Obsoletos:** `setup-netboot-server.yml`, `prepare-node.yml`, `update-kernel.yml`, `install-basic-tools-nodes.yml`, `longhorn.yml`, `longhorn-storage.yml`
 
 ---
 
@@ -293,8 +292,8 @@ Siempre que se tome una decisión que afecte la arquitectura: cambio de tecnolog
 ### Pods en Pending — PVC no se bindea
 ```bash
 kubectl describe pvc <nombre> -n <namespace>
-# Si dice "could not find StorageClass longhorn":
-helm install longhorn longhorn/longhorn -n longhorn-system --create-namespace
+# local-path usa WaitForFirstConsumer — el PVC queda Pending hasta que un Pod lo use, es normal
+# Si el pod también está en Pending: kubectl describe pod <nombre> -n <namespace>
 ```
 
 ### k3s: pods no se comunican entre nodos
@@ -357,21 +356,21 @@ aren-house/
 ├── .github/workflows/         # CI/CD (build & push al registry local)
 ├── apps/
 │   └── test-app/              # Express app de prueba
+├── certifications/            # Roadmap y materiales KCNA
 ├── homelab-ansible/
 │   ├── inventory/inventory.yml
 │   ├── playbooks/
 │   └── roles/                 # dnsmasq, wireguard, nfs
 ├── k8s-apps/
-│   ├── longhorn/              # Ingress Longhorn UI
 │   ├── metallb/               # IP pool config
 │   ├── monitoring-stack/      # Prometheus, Grafana, Alertmanager, Blackbox
 │   ├── n8n/
-│   ├── ntfy/                  # ntfy + ntfy-alertmanager bridge
+│   ├── ntfy/                  # manifiestos listos, pendiente desplegar
 │   ├── registry/
 │   └── test-app/
 ├── stacks/                    # Docker Compose (migración en curso)
 └── docs/
-    ├── decisions/             # ADRs 001-015
+    ├── decisions/             # ADRs 001-016
     ├── concepts/
     ├── guides/                # firewall.md, k3s-guide.md, network-troubleshooting.md
     ├── reference/             # IPs, URLs, comandos
@@ -389,8 +388,7 @@ aren-house/
 - [x] Registry privado en k8s
 - [x] n8n en k8s
 - [x] CI/CD con GitHub Actions (self-hosted runner)
-- [x] Longhorn instalado (Helm)
-- [ ] ntfy + ntfy-alertmanager bridge (manifiestos en `k8s-apps/ntfy/`, falta desplegar)
+- [ ] ntfy (manifiestos completos en `k8s-apps/ntfy/`, falta `kubectl apply`)
 - [ ] Loki (logs centralizados)
 - [ ] Cert-Manager (TLS)
 - [ ] Migrar Pi-hole al cluster
@@ -410,3 +408,4 @@ aren-house/
 | 013 | PostgreSQL fuera del cluster (Docker+systemd) |
 | 014 | Boot desde SSD local sobre netboot PXE/NFS |
 | 015 | IPs estáticas via netplan sobre DHCP en nodos |
+| 016 | local-path sobre Longhorn (iSCSI causaba bloqueos de kernel en rp3) |
