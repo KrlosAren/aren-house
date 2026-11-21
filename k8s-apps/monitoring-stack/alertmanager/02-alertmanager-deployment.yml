@@ -47,6 +47,13 @@ spec:
         - name: storage
           persistentVolumeClaim:
             claimName: alertmanager-pvc
+        # projected: dos Secrets (creados a mano, NO en git) en /etc/alertmanager/secrets
+        #   token            ← alertmanager-ntfy
+        #   healthchecks-url ← alertmanager-healthchecks
         - name: ntfy-token
-          secret:
-            secretName: alertmanager-ntfy   # creado a mano, NO en git (ver 01-alertmanager-config.yml)
+          projected:
+            sources:
+              - secret:
+                  name: alertmanager-ntfy
+              - secret:
+                  name: alertmanager-healthchecks

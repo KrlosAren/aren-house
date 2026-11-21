@@ -219,6 +219,17 @@ data:
       # ------------------------------------------------------------------ El propio monitoreo
       - name: monitoreo
         rules:
+          - alert: Watchdog
+            # Dead man's switch: SIEMPRE disparada. Alertmanager la reenvía a Healthchecks.io
+            # cada 5 min; si deja de llegar (corte de luz, rp1/rp2 caído, sin internet,
+            # Prometheus/Alertmanager rotos), Healthchecks avisa por un canal externo.
+            # NO silenciar ni borrar.
+            expr: vector(1)
+            labels:
+              severity: none
+            annotations:
+              summary: "Heartbeat del homelab (no es un problema)"
+
           - alert: TargetCaido
             # node-exporter tiene su propia alerta (NodoSinRespuesta)
             expr: up{job!="node-exporter"} == 0

@@ -16,6 +16,13 @@ data:
       repeat_interval: 4h
       receiver: 'ntfy'                 # warning → prioridad normal (3)
       routes:
+        # Dead man's switch → Healthchecks.io (externo). Va PRIMERO y no continúa:
+        # nunca llega a ntfy. Healthchecks: período 5 min, gracia 10 min.
+        - matchers: [alertname="Watchdog"]
+          receiver: 'healthchecks'
+          group_wait: 0s
+          group_interval: 1m
+          repeat_interval: 5m
         - matchers: [severity="critical"]
           receiver: 'ntfy-critico'
           repeat_interval: 1h          # recordar más seguido lo urgente
@@ -41,6 +48,12 @@ data:
           - url: 'http://ntfy.ntfy.svc.cluster.local/alertas?template=alertmanager&priority=5&tags=rotating_light'
             send_resolved: true
             http_config: *ntfy_auth
+      # URL de ping (contiene el UUID = credencial) en Secret creado a mano, NO en git:
+      #   kubectl create secret generic alertmanager-healthchecks -n monitoring --from-file=healthchecks-url=<archivo con la URL>
+      - name: 'healthchecks'
+        webhook_configs:
+          - url_file: /etc/alertmanager/secrets/healthchecks-url
+            send_resolved: false
       - name: 'ntfy-info'
         webhook_configs:
           - url: 'http://ntfy.ntfy.svc.cluster.local/alertas?template=alertmanager&priority=2'

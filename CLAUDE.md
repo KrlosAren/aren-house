@@ -300,6 +300,7 @@ Frigate --MQTT frigate/reviews--> Mosquitto --> frigate-notify --HTTP + snapshot
 - Alertmanager → ntfy self-hosted, topic **`alertas`**, `?template=alertmanager` (plantilla nativa de ntfy). Usuario ntfy `alertmanager` write-only; token en Secret `alertmanager-ntfy` (montado como `credentials_file`). Antes usaba un topic público de ntfy.sh.
 - Grafana secret cifrado con SOPS: `sops -d k8s-apps/monitoring-stack/grafana/secrets/05-grafana-secrets.yml | kubectl apply -f -` (llave age en la ubicación por defecto de sops).
 - **Alertas** (`prometheus/09-prometheus-rules.yml`, 22 reglas en 5 grupos): nodos (caído, CPU, memoria, disco + predicción 24h, temperatura 75/82 °C, PSI I/O y memoria, NTP, reinicio), servicios (systemd caído/failed, probes blackbox), kubernetes (CrashLoop >3 reinicios/15m, pod no listo excl. Succeeded, nodo NotReady, PVC >85%), frigate (cámara sin video, frames saltados, inferencia lenta), monitoreo (target caído).
+- **Dead man's switch:** regla `Watchdog` (`vector(1)`, siempre disparada) → Alertmanager la envía **solo** a Healthchecks.io cada 5 min (nunca a ntfy). Si deja de llegar (corte de luz, rp1/rp2 caído, sin internet, Prometheus/Alertmanager rotos), Healthchecks avisa por canal externo. URL de ping (UUID = credencial) en Secret `alertmanager-healthchecks` (no en git), montado junto al token ntfy vía `projected`. **No silenciar ni borrar `Watchdog`.**
 - Ruteo por severidad → prioridad ntfy: `critical` = 5 (repite c/1h), `warning` = 3 (c/4h), `info` = 2 (sin "resolved"). Inhibiciones: NodoSinRespuesta silencia el resto del nodo; TemperaturaCritica silencia TemperaturaAlta.
 - Validar antes de aplicar: `promtool check rules` (en el pod de Prometheus) y `amtool check-config` (en el de Alertmanager). Tras aplicar, esperar sync del ConfigMap y `POST /-/reload` en ambos.
 - Prueba de alerta: `kubectl exec -n monitoring deploy/alertmanager -- wget -qO- --header='Content-Type: application/json' --post-data='[{"labels":{"alertname":"Prueba","severity":"warning"}}]' http://localhost:9093/api/v2/alerts`
@@ -504,7 +505,7 @@ aren-house/
 - [x] ADR-017: servicios sensibles via `tailscale serve` en vez de Ingress
 - [x] Monitoring (Prometheus, Grafana, Alertmanager → ntfy, Blackbox, KSM, scrape Frigate)
 - [ ] Redesplegar n8n, registry (revisar exposición de Ingress)
-- [ ] Migrar Secrets creados a mano (camera-credentials, ntfy-admin, frigate-notify-ntfy, alertmanager-ntfy) a SOPS
+- [ ] Migrar Secrets creados a mano (camera-credentials, ntfy-admin, frigate-notify-ntfy, alertmanager-ntfy, alertmanager-healthchecks) a SOPS
 - [x] Dashboard Grafana para Frigate
 - [x] Panel "CPU Usado por Pod" completado
 - [x] Dashboard Nodos + collector systemd en node-exporter
@@ -512,7 +513,7 @@ aren-house/
 - [ ] Desactivar servicios NFS en rp1 si no se usan
 - [ ] Reinstalar GitHub Actions runner (`playbooks/github-runner.yml`) + registry para que el CI/CD vuelva a funcionar
 - [x] Alertas Prometheus (22 reglas) → ntfy `alertas` con prioridad por severidad
-- [ ] Alerta "dead man's switch" (Watchdog) hacia un servicio externo: hoy si cae todo el cluster, no llega ninguna alerta
+- [x] Dead man's switch: Watchdog → Healthchecks.io
 - [ ] Actualizar node_exporter (1.7.0 en el playbook)
 - [ ] Falco (completar `sockets:` en values) + falcosidekick → ntfy
 - [x] Frigate (detección por CPU, grabación solo eventos)
