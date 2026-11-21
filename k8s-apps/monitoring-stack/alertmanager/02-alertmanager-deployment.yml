@@ -13,14 +13,16 @@ spec:
       labels:
         app: alertmanager
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: rp3-node   # PV local-path vive aquí
       terminationGracePeriodSeconds: 120
       containers:
         - name: alertmanager
-          image: prom/alertmanager:latest
+          image: prom/alertmanager:v0.34.2
           args:
             - "--config.file=/etc/alertmanager/alertmanager.yml"
             - "--storage.path=/alertmanager"
-            - "--web.external-url=http://alertmanager.k8s.homelab.local"
+            - "--web.external-url=https://rp1-master.tailb0ca85.ts.net:8448"
           ports:
             - containerPort: 9093
           volumeMounts:
@@ -28,6 +30,9 @@ spec:
               mountPath: /etc/alertmanager
             - name: storage
               mountPath: /alertmanager
+            - name: ntfy-token        # token ntfy (usuario alertmanager, write-only en "alertas")
+              mountPath: /etc/alertmanager/secrets
+              readOnly: true
           resources:
             requests:
               memory: "64Mi"
@@ -42,3 +47,6 @@ spec:
         - name: storage
           persistentVolumeClaim:
             claimName: alertmanager-pvc
+        - name: ntfy-token
+          secret:
+            secretName: alertmanager-ntfy   # creado a mano, NO en git (ver 01-alertmanager-config.yml)

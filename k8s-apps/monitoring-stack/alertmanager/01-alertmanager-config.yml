@@ -16,10 +16,18 @@ data:
       receiver: 'default'
 
     receivers:
+      # ntfy self-hosted (antes: topic público en ntfy.sh). Plantilla nativa de ntfy para Alertmanager.
+      # Token: usuario ntfy "alertmanager", write-only en topic "alertas". Secret creado a mano:
+      #   kubectl exec -n ntfy deploy/ntfy -- ntfy token add --label=alertmanager alertmanager
+      #   kubectl create secret generic alertmanager-ntfy -n monitoring --from-literal=token=tk_...
       - name: 'default'
         webhook_configs:
-          - url: 'https://ntfy.sh/aren-house-z6OIFBWC4NX6BRydLY'
+          - url: 'http://ntfy.ntfy.svc.cluster.local/alertas?template=alertmanager'
             send_resolved: true
+            http_config:
+              authorization:
+                type: Bearer
+                credentials_file: /etc/alertmanager/secrets/token
             
     inhibit_rules:
       - source_matchers: [severity="critical"]

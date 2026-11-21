@@ -36,7 +36,7 @@ spec:
       terminationGracePeriodSeconds: 120
       containers:
         - name: grafana
-          image: grafana/grafana
+          image: grafana/grafana:13.1.10
           ports:
             - containerPort: 3000
           env:
@@ -52,6 +52,8 @@ spec:
                   name: grafana-secrets
             - name: GF_USERS_ALLOW_SIGN_UP
               value: "false"
+            - name: GF_SERVER_ROOT_URL         # acceso via tailscale serve (ADR-017)
+              value: "https://rp1-master.tailb0ca85.ts.net:8447/"
           resources:
             requests:
               memory: "1024Mi"

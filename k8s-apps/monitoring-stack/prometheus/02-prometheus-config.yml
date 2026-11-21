@@ -181,6 +181,13 @@ data:
           - targets:
               - "localhost:9090"
 
+      ## Frigate (NVR, ns cameras): fps, inferencia, CPU por proceso
+      - job_name: 'frigate'
+        metrics_path: /api/metrics
+        static_configs:
+          - targets:
+              - "frigate.cameras.svc.cluster.local:5000"
+
       ## alertmanager
       - job_name: 'alertmanager'
         static_configs:

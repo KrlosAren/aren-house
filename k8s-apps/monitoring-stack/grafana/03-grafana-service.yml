@@ -4,6 +4,8 @@ metadata:
   name: grafana
   namespace: monitoring
 spec:
+  # IP fija: `tailscale serve` en rp1 apunta aquí (ADR-017)
+  clusterIP: 10.43.200.13
   selector:
     app: grafana
   ports:

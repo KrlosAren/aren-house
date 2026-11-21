@@ -195,6 +195,9 @@ Cliente → DNS → *.k8s.homelab.local → 192.168.1.89 (WAN rp1)
 | 8443 | go2rtc | 10.43.92.177:1984 |
 | 8444 | ntfy | 10.43.200.10:80 |
 | 8445 | Frigate | 10.43.200.11:5000 |
+| 8446 | Prometheus | 10.43.200.12:9090 |
+| 8447 | Grafana (login propio) | 10.43.200.13:3000 |
+| 8448 | Alertmanager | 10.43.200.14:9093 |
 
 ---
 
@@ -215,8 +218,9 @@ Cliente → DNS → *.k8s.homelab.local → 192.168.1.89 (WAN rp1)
 |-----|-------------|--------|--------|
 | ntfy | rp3-node | 2Gi | Desplegado |
 | Frigate | rp2-node | 100Gi (solo eventos) | Desplegado |
-| Prometheus | rp2-node | 20Gi | Manifiestos, no desplegado |
-| Grafana | rp3-node | 5Gi | Manifiestos, no desplegado |
+| Prometheus | rp2-node | 20Gi | Desplegado |
+| Grafana | rp3-node | 5Gi | Desplegado |
+| Alertmanager | rp3-node | 2Gi | Desplegado |
 | n8n | rp3-node | 5Gi | Manifiestos, no desplegado |
 
 ---
@@ -246,10 +250,14 @@ Estado real del cluster (nov 2026). Verificar con `kubectl get ns` y `kubectl ge
 | go2rtc (cámara C110) | cameras | — (stateless) | `https://rp1-master.tailb0ca85.ts.net:8443` (tailscale serve) |
 | ntfy | ntfy | local-path (2Gi, rp3) | `https://rp1-master.tailb0ca85.ts.net:8444` (tailscale serve) |
 | Frigate | cameras | local-path (100Gi, rp2) | `https://rp1-master.tailb0ca85.ts.net:8445` (tailscale serve) |
+| Prometheus | monitoring | local-path (20Gi, rp2) | `https://rp1-master.tailb0ca85.ts.net:8446` |
+| Grafana | monitoring | local-path (5Gi, rp3) | `https://rp1-master.tailb0ca85.ts.net:8447` (login) |
+| Alertmanager | monitoring | local-path (2Gi, rp3) | `https://rp1-master.tailb0ca85.ts.net:8448` |
+| Blackbox Exporter, kube-state-metrics | monitoring | — | interno |
 | MetalLB | metallb-system | — | — |
 | kite | kube-system | — | sin Ingress |
 
-**Con manifiestos en `k8s-apps/` pero NO desplegadas** (borradas a propósito junto con Longhorn): `monitoring-stack/` (Prometheus, Grafana, Alertmanager, Blackbox, kube-state-metrics), `n8n/`, `registry/`. Al redesplegarlas, revisar los Ingress (ver "Dos formas de exponer un servicio").
+**Con manifiestos en `k8s-apps/` pero NO desplegadas** (borradas a propósito junto con Longhorn): `n8n/`, `registry/`. Al redesplegarlas, revisar los Ingress (ver "Dos formas de exponer un servicio").
 
 **Sin desplegar aún:** `argocd/` (solo namespace + Ingress), `falco/` (Helm values; tiene un `TODO(human)` en `sockets:` — en k3s es `/run/k3s/containerd/containerd.sock`).
 
@@ -282,10 +290,19 @@ Frigate --MQTT frigate/reviews--> Mosquitto --> frigate-notify --HTTP + snapshot
   kubectl exec -n cameras deploy/frigate -c frigate -- curl -s -X PUT -H 'Content-Type: application/json' -d '{}' localhost:5000/api/events/<id>/end
   ```
 
+### Monitoring (ns monitoring)
+- Sin Ingress: todo por tailscale serve (8446-8448). Imágenes fijadas: Prometheus v3.13.5, Grafana 13.1.10, Alertmanager v0.34.2, KSM v2.20.0.
+- Targets: apiserver, kubelet, cAdvisor, pods anotados, node-exporter (systemd en los 3 nodos, :9100), blackbox ICMP/SSH, **Frigate** (`/api/metrics`), Prometheus, Alertmanager.
+- Alertmanager → ntfy self-hosted, topic **`alertas`**, `?template=alertmanager` (plantilla nativa de ntfy). Usuario ntfy `alertmanager` write-only; token en Secret `alertmanager-ntfy` (montado como `credentials_file`). Antes usaba un topic público de ntfy.sh.
+- Grafana secret cifrado con SOPS: `sops -d k8s-apps/monitoring-stack/grafana/secrets/05-grafana-secrets.yml | kubectl apply -f -` (llave age en la ubicación por defecto de sops).
+- Prueba de alerta: `kubectl exec -n monitoring deploy/alertmanager -- wget -qO- --header='Content-Type: application/json' --post-data='[{"labels":{"alertname":"Prueba","severity":"warning"}}]' http://localhost:9093/api/v2/alerts`
+- `spec.clusterIP` es inmutable: para fijarla en un Service existente hay que borrarlo y recrearlo.
+
 ### ntfy
 - `auth-default-access: deny-all`. Usuario `admin`, password en el Secret `ntfy-admin` (ns `ntfy`, no está en git): `kubectl get secret ntfy-admin -n ntfy -o jsonpath='{.data.password}' | base64 -d`
 - `upstream-base-url: https://ntfy.sh` es necesario para push instantáneo en iOS (solo envía el ID del mensaje, no el contenido).
-- Publicadores dentro del cluster: `http://ntfy.ntfy.svc.cluster.local/<topic>`. Topic de pruebas: `homelab`.
+- Publicadores dentro del cluster: `http://ntfy.ntfy.svc.cluster.local/<topic>`.
+- Topics: `camara` (Frigate), `alertas` (Alertmanager), `homelab` (pruebas). Usuarios: `admin` (todo), `frigate` y `alertmanager` (write-only en su topic).
 
 ---
 
@@ -346,7 +363,7 @@ Ansible corre desde Mac. Nodos accesibles via ProxyJump por rp1.
 - Manifiestos k8s van en `k8s-apps/<nombre-app>/` con archivos numerados (`01-`, `02-`, etc.)
 - Playbooks Ansible se prueban con `--check` antes de aplicar en producción (ojo: `command`/`shell` se saltan en `--check`; tareas de solo lectura llevan `check_mode: false`)
 - Imágenes con versión fija (no `latest`), preferir releases con ≥2 semanas
-- Secrets: crear con `kubectl create secret`, nunca en git. `k8s-apps/n8n/secrets/00-secrets.yml` está trackeado (el `.gitignore` solo cubre `secrets.yml`) — pendiente revisar
+- Secrets: o cifrados con **SOPS + age** (`.sops.yaml` cifra todo `*secret*.yml`; ej. grafana, n8n) o creados con `kubectl create secret` fuera de git. Nunca en texto plano.
 - Todos los nodos usan usuario `admin` con UID 1000
 - Commits en español
 
@@ -447,7 +464,7 @@ aren-house/
 │   ├── kite/
 │   ├── longhorn/              # restos, obsoleto (ADR-016)
 │   ├── metallb/               # IP pool config
-│   ├── monitoring-stack/      # Prometheus, Grafana, Alertmanager, Blackbox (no desplegado)
+│   ├── monitoring-stack/      # Prometheus, Grafana, Alertmanager, Blackbox (desplegado)
 │   ├── n8n/                   # (no desplegado)
 │   ├── ntfy/                  # desplegado
 │   ├── registry/              # (no desplegado)
@@ -473,8 +490,10 @@ aren-house/
 - [x] go2rtc para cámara Tapo C110 (via tailscale serve)
 - [x] Limpieza de restos de Longhorn (StorageClasses, PV, CSIDriver)
 - [x] ADR-017: servicios sensibles via `tailscale serve` en vez de Ingress
-- [ ] Redesplegar monitoring-stack, n8n, registry (revisar exposición de Ingress)
-- [ ] Revisar `k8s-apps/n8n/secrets/00-secrets.yml` en git (¿credenciales reales en el historial?)
+- [x] Monitoring (Prometheus, Grafana, Alertmanager → ntfy, Blackbox, KSM, scrape Frigate)
+- [ ] Redesplegar n8n, registry (revisar exposición de Ingress)
+- [ ] Migrar Secrets creados a mano (camera-credentials, ntfy-admin, frigate-notify-ntfy, alertmanager-ntfy) a SOPS
+- [ ] Dashboard Grafana para Frigate
 - [ ] Falco (completar `sockets:` en values) + falcosidekick → ntfy
 - [x] Frigate (detección por CPU, grabación solo eventos)
 - [x] Alertas de Frigate → ntfy (Mosquitto + frigate-notify, topic `camara`)

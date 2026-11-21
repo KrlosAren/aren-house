@@ -5,6 +5,8 @@ metadata:
   name: prometheus
   namespace: monitoring
 spec:
+  # IP fija: `tailscale serve` en rp1 apunta aquí (ADR-017)
+  clusterIP: 10.43.200.12
   selector:
     app: prometheus
   ports:

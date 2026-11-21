@@ -22,6 +22,15 @@
       - name: frigate           # NVR + detección IA → https://rp1-master.<tailnet>.ts.net:8445
         port: 8445
         target: http://10.43.200.11:5000   # Service frigate (ns cameras), clusterIP fija
+      - name: prometheus
+        port: 8446
+        target: http://10.43.200.12:9090   # Service prometheus (ns monitoring)
+      - name: grafana           # tiene login propio
+        port: 8447
+        target: http://10.43.200.13:3000   # Service grafana (ns monitoring)
+      - name: alertmanager
+        port: 8448
+        target: http://10.43.200.14:9093   # Service alertmanager (ns monitoring)
 
   tasks:
     - name: Instalar Tailscale via script oficial
