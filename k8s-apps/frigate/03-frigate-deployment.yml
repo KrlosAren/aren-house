@@ -1,0 +1,84 @@
+# Requiere: namespace cameras y go2rtc desplegados (k8s-apps/go2rtc/)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frigate
+  namespace: cameras
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate              # RWO + sqlite: nunca dos pods a la vez
+  selector:
+    matchLabels:
+      app: frigate
+  template:
+    metadata:
+      labels:
+        app: frigate
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: rp2-node   # SSD de rp2; el PV local-path vive aquí
+      initContainers:
+        # Frigate necesita /config ESCRIBIBLE (migra el config y guarda frigate.db ahí).
+        # El ConfigMap es la fuente de verdad: se copia en cada arranque.
+        # ⚠️ Cambios hechos desde la UI de Frigate se pierden al reiniciar → editar el ConfigMap.
+        - name: copy-config
+          image: busybox:1.36
+          command: ["sh", "-c", "cp /config-src/config.yml /config/config.yml"]
+          volumeMounts:
+            - name: config-src
+              mountPath: /config-src
+            - name: data
+              mountPath: /config
+              subPath: config
+      containers:
+        - name: frigate
+          image: ghcr.io/blakeblackshear/frigate:0.18.2
+          env:
+            - name: TZ
+              value: America/Santiago
+          ports:
+            - name: http
+              containerPort: 5000     # UI/API sin auth; acceso solo via tailscale serve (ADR-017)
+          volumeMounts:
+            - name: data
+              mountPath: /config
+              subPath: config
+            - name: data
+              mountPath: /media/frigate
+              subPath: media
+            - name: cache
+              mountPath: /tmp/cache
+            - name: shm
+              mountPath: /dev/shm
+          startupProbe:               # el primer arranque migra config y crea la DB
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              cpu: "3"                # deja 1 core libre en rp2
+              memory: 3Gi
+      volumes:
+        - name: config-src
+          configMap:
+            name: frigate-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: frigate-data
+        - name: cache                 # tmpfs: segmentos antes de validarse (docs Frigate)
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+        - name: shm                   # frames decodificados (equivale a --shm-size)
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi

@@ -12,6 +12,12 @@ data:
     cache-file: /var/cache/ntfy/cache.db
     cache-duration: 12h
 
+    # Adjuntos: snapshots de Frigate en las notificaciones
+    attachment-cache-dir: /var/cache/ntfy/attachments
+    attachment-total-size-limit: 1G
+    attachment-file-size-limit: 5M
+    attachment-expiry-duration: 72h
+
     auth-file: /var/lib/ntfy/user.db
     auth-default-access: deny-all
 

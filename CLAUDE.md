@@ -194,6 +194,7 @@ Cliente → DNS → *.k8s.homelab.local → 192.168.1.89 (WAN rp1)
 |---|---|---|
 | 8443 | go2rtc | 10.43.92.177:1984 |
 | 8444 | ntfy | 10.43.200.10:80 |
+| 8445 | Frigate | 10.43.200.11:5000 |
 
 ---
 
@@ -213,6 +214,7 @@ Cliente → DNS → *.k8s.homelab.local → 192.168.1.89 (WAN rp1)
 | App | Nodo pinado | Tamaño | Estado |
 |-----|-------------|--------|--------|
 | ntfy | rp3-node | 2Gi | Desplegado |
+| Frigate | rp2-node | 100Gi (solo eventos) | Desplegado |
 | Prometheus | rp2-node | 20Gi | Manifiestos, no desplegado |
 | Grafana | rp3-node | 5Gi | Manifiestos, no desplegado |
 | n8n | rp3-node | 5Gi | Manifiestos, no desplegado |
@@ -243,6 +245,7 @@ Estado real del cluster (nov 2026). Verificar con `kubectl get ns` y `kubectl ge
 |-----|-----------|---------|--------|
 | go2rtc (cámara C110) | cameras | — (stateless) | `https://rp1-master.tailb0ca85.ts.net:8443` (tailscale serve) |
 | ntfy | ntfy | local-path (2Gi, rp3) | `https://rp1-master.tailb0ca85.ts.net:8444` (tailscale serve) |
+| Frigate | cameras | local-path (100Gi, rp2) | `https://rp1-master.tailb0ca85.ts.net:8445` (tailscale serve) |
 | MetalLB | metallb-system | — | — |
 | kite | kube-system | — | sin Ingress |
 
@@ -255,6 +258,29 @@ Estado real del cluster (nov 2026). Verificar con `kubectl get ns` y `kubectl ge
 - Streams: `casona` (2304x1296 + audio AAC) y `casona_sub` (baja resolución). Ver: `.../stream.html?src=casona`
 - Sin auth en go2rtc a propósito: no tiene Ingress, el acceso lo controla Tailscale.
 - La imagen usa ENTRYPOINT `tini`: en `args` hay que incluir el binario (`["go2rtc", "-config", ...]`).
+
+### Frigate
+- v0.18.2, detector **CPU** (Pi 5 sin acelerador): ~5 fps, inferencia ~10 ms, ~0.2 cores en reposo. Con Hailo-8L/Coral cambiar `detectors`.
+- Consume los streams de **nuestro go2rtc** (`go2rtc.cameras.svc:8554`) — la Tapo mantiene una sola conexión. Detecta en `casona_sub` (1280x720), graba `casona` (copia sin recodificar; la Pi 5 no decodifica H.264 por hardware).
+- Grabación **solo eventos**: continuous/motion = 0 días; alerts (person) 30 días, pre 5s/post 10s; detections (dog, cat) 7 días.
+- `/config` escribible vía `initContainer` que copia el ConfigMap en cada arranque → **cambios hechos en la UI de Frigate se pierden al reiniciar; editar `01-frigate-config.yml`**.
+- `/dev/shm` (256Mi) y `/tmp/cache` (1Gi) son `emptyDir` en memoria (equivalente a `--shm-size`/tmpfs).
+- Puerto 5000 = UI sin auth; acceso solo por Tailscale (ADR-017).
+
+### Notificaciones (Frigate → ntfy)
+```
+Frigate --MQTT frigate/reviews--> Mosquitto --> frigate-notify --HTTP + snapshot--> ntfy topic "camara" --> 📱
+```
+- **Mosquitto** (`05-mosquitto.yml`): solo ClusterIP, anónimo (solo pods del cluster llegan).
+- **frigate-notify** v0.5.4 (`06-frigate-notify.yml`): modo `reviews` → solo **alerts** (person), `min_score: 0.7`, `notify_once`. Perros/gatos no notifican.
+- Usuario ntfy `frigate`: **write-only** en `camara`. Token en Secret `frigate-notify-ntfy` (ns cameras, no en git); un `initContainer` lo inyecta reemplazando `__NTFY_TOKEN__` del ConfigMap en un `emptyDir` en memoria.
+- ntfy tiene adjuntos habilitados (`attachment-cache-dir`, 5M/archivo, 72h).
+- Probar sin pasar frente a la cámara (los eventos manuales tienen score 0 → usar `score`, y cerrarlos después):
+  ```bash
+  kubectl exec -n cameras deploy/frigate -c frigate -- curl -s -X POST -H 'Content-Type: application/json' \
+    -d '{"duration":10,"score":0.95,"draw":{}}' localhost:5000/api/events/casona/person/create
+  kubectl exec -n cameras deploy/frigate -c frigate -- curl -s -X PUT -H 'Content-Type: application/json' -d '{}' localhost:5000/api/events/<id>/end
+  ```
 
 ### ntfy
 - `auth-default-access: deny-all`. Usuario `admin`, password en el Secret `ntfy-admin` (ns `ntfy`, no está en git): `kubectl get secret ntfy-admin -n ntfy -o jsonpath='{.data.password}' | base64 -d`
@@ -416,6 +442,7 @@ aren-house/
 ├── k8s-apps/
 │   ├── argocd/                # namespace + ingress (no desplegado)
 │   ├── falco/                 # Helm values (no desplegado)
+│   ├── frigate/               # NVR + detección IA (desplegado, ns cameras, rp2)
 │   ├── go2rtc/                # cámara Tapo C110 (desplegado, ns cameras)
 │   ├── kite/
 │   ├── longhorn/              # restos, obsoleto (ADR-016)
@@ -449,7 +476,9 @@ aren-house/
 - [ ] Redesplegar monitoring-stack, n8n, registry (revisar exposición de Ingress)
 - [ ] Revisar `k8s-apps/n8n/secrets/00-secrets.yml` en git (¿credenciales reales en el historial?)
 - [ ] Falco (completar `sockets:` en values) + falcosidekick → ntfy
-- [ ] Frigate (detección/grabación sobre `casona_sub`) + alertas a ntfy
+- [x] Frigate (detección por CPU, grabación solo eventos)
+- [x] Alertas de Frigate → ntfy (Mosquitto + frigate-notify, topic `camara`)
+- [ ] Evaluar acelerador (Hailo-8L AI Kit / Coral) si se agregan cámaras
 - [ ] Router/AP en modo bridge (Archer C6 o Mercusys MR30G) para red IoT en 10.0.0.x → bloquear internet a la cámara con UFW
 - [ ] Loki (logs centralizados)
 - [ ] Cert-Manager (TLS)

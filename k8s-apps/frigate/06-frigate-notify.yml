@@ -1,0 +1,90 @@
+# Puente Frigate (MQTT, modo reviews) → ntfy topic "camara" con snapshot adjunto.
+# Token ntfy (usuario frigate, write-only en "camara") en Secret creado a mano, NO en git:
+#   kubectl exec -n ntfy deploy/ntfy -- ntfy token add --label=frigate-notify frigate
+#   kubectl create secret generic frigate-notify-ntfy -n cameras --from-literal=NTFY_TOKEN=tk_...
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frigate-notify-config
+  namespace: cameras
+data:
+  config.yml: |
+    app:
+      mode: reviews                 # notifica alerts de Frigate (person); no detections
+    frigate:
+      server: http://frigate.cameras.svc.cluster.local:5000
+      public_url: https://rp1-master.tailb0ca85.ts.net:8445   # links en la notificación (via Tailscale)
+      mqtt:
+        enabled: true
+        server: mosquitto.cameras.svc.cluster.local
+        port: 1883
+    alerts:
+      general:
+        title: "📷 Casona"
+        timeformat: "15:04:05"
+        notify_once: true           # una notificación por evento, no por cada actualización
+        notify_detections: false    # perros/gatos solo en la UI de Frigate
+      labels:
+        min_score: 0.7
+      ntfy:
+        enabled: true
+        server: http://ntfy.ntfy.svc.cluster.local
+        topic: camara
+        headers:
+          - Authorization: Bearer __NTFY_TOKEN__
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frigate-notify
+  namespace: cameras
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate                  # evita notificaciones duplicadas durante un rollout
+  selector:
+    matchLabels:
+      app: frigate-notify
+  template:
+    metadata:
+      labels:
+        app: frigate-notify
+    spec:
+      initContainers:
+        # Inyecta el token del Secret en el config (el ConfigMap en git solo tiene el placeholder)
+        - name: render-config
+          image: busybox:1.36
+          command: ["sh", "-c", "sed \"s|__NTFY_TOKEN__|${NTFY_TOKEN}|\" /src/config.yml > /app/config/config.yml"]
+          envFrom:
+            - secretRef:
+                name: frigate-notify-ntfy
+          volumeMounts:
+            - name: config-src
+              mountPath: /src
+            - name: config
+              mountPath: /app/config
+      containers:
+        - name: frigate-notify
+          image: ghcr.io/0x2142/frigate-notify:v0.5.4
+          env:
+            - name: FN_CONFIGFILE
+              value: /app/config/config.yml
+            - name: TZ
+              value: America/Santiago
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      volumes:
+        - name: config-src
+          configMap:
+            name: frigate-notify-config
+        - name: config
+          emptyDir:
+            medium: Memory          # el config renderizado contiene el token: no tocar disco

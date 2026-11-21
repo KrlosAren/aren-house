@@ -19,6 +19,9 @@
       - name: ntfy              # notificaciones push → https://rp1-master.<tailnet>.ts.net:8444
         port: 8444
         target: http://10.43.200.10:80     # Service ntfy (ns ntfy), clusterIP fija
+      - name: frigate           # NVR + detección IA → https://rp1-master.<tailnet>.ts.net:8445
+        port: 8445
+        target: http://10.43.200.11:5000   # Service frigate (ns cameras), clusterIP fija
 
   tasks:
     - name: Instalar Tailscale via script oficial

@@ -1,0 +1,14 @@
+# Un solo PVC con dos subPaths: config/ (config.yml + frigate.db) y media/ (grabaciones, snapshots)
+# local-path no impone el tamaño: el límite real lo da la retención en config.yml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: frigate-data
+  namespace: cameras
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 100Gi

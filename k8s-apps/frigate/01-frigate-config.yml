@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frigate-config
+  namespace: cameras
+data:
+  config.yml: |
+    mqtt:
+      enabled: true             # eventos → frigate-notify → ntfy (topic "camara")
+      host: mosquitto.cameras.svc.cluster.local
+      port: 1883
+
+    # Detector por CPU (Pi 5 sin acelerador). Suficiente para 1 cámara a 5 fps.
+    # Con Hailo-8L o Coral: cambiar type y quitar num_threads.
+    detectors:
+      cpu1:
+        type: cpu
+        num_threads: 3
+
+    # El go2rtc interno de Frigate re-sirve los streams de NUESTRO go2rtc (ns cameras).
+    # La Tapo sigue teniendo una sola conexión RTSP: la de go2rtc.
+    go2rtc:
+      streams:
+        casona:
+          - rtsp://go2rtc.cameras.svc.cluster.local:8554/casona
+        casona_sub:
+          - rtsp://go2rtc.cameras.svc.cluster.local:8554/casona_sub
+
+    cameras:
+      casona:
+        ffmpeg:
+          inputs:
+            - path: rtsp://127.0.0.1:8554/casona       # 2304x1296: solo se graba (copia, sin recodificar)
+              input_args: preset-rtsp-restream
+              roles: [record]
+            - path: rtsp://127.0.0.1:8554/casona_sub   # 1280x720: se decodifica para detectar
+              input_args: preset-rtsp-restream
+              roles: [detect]
+        detect:
+          width: 1280
+          height: 720
+          fps: 5
+        objects:
+          track: [person, dog, cat]
+        live:
+          streams:
+            Principal: casona
+            Baja: casona_sub
+
+    snapshots:
+      enabled: true
+      retain:
+        default: 14
+
+    # Grabación: Frigate distingue
+    #   continuous → todo el video, haya o no actividad
+    #   motion     → solo segmentos con movimiento (píxeles)
+    #   alerts     → eventos importantes (por defecto: person)
+    #   detections → otros objetos rastreados (dog, cat)
+    # Cada uno con su retención en días; 0 = no guardar.
+    # alerts/detections aceptan pre_capture/post_capture (segundos antes/después del evento)
+    # y retain.mode: all | motion | active_objects
+    record:
+      enabled: true
+      continuous:
+        days: 0                 # sin 24/7
+      motion:
+        days: 0                 # sin movimiento "suelto" (sombras, luz)
+      alerts:                   # person
+        pre_capture: 5          # ver cómo llegó la persona
+        post_capture: 10
+        retain:
+          days: 30
+          mode: motion
+      detections:               # dog, cat
+        pre_capture: 3
+        post_capture: 5
+        retain:
+          days: 7
+          mode: active_objects
