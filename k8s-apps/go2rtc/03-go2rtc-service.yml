@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: go2rtc
+  namespace: cameras
+spec:
+  # IP fija: `tailscale serve` en rp1 apunta aquí (rp1 no resuelve DNS del cluster)
+  clusterIP: 10.43.92.177
+  selector:
+    app: go2rtc
+  ports:
+    - name: http
+      port: 1984
+      targetPort: http
+    - name: rtsp            # para Frigate u otros consumidores dentro del cluster
+      port: 8554
+      targetPort: rtsp

@@ -14,10 +14,10 @@ spec:
         app: ntfy
     spec:
       nodeSelector:
-        kubernetes.io/hostname: rp1-master
+        kubernetes.io/hostname: rp3-node   # worker con SSD; el PV local-path vive en este nodo
       containers:
         - name: ntfy
-          image: binwiederhier/ntfy:latest
+          image: binwiederhier/ntfy:v2.37.2
           args: ["serve", "--config", "/etc/ntfy/server.yml"]
           ports:
             - containerPort: 80

@@ -1,0 +1,62 @@
+# Credenciales RTSP: Secret "camera-credentials" creado a mano (NO va en git):
+#   kubectl create secret generic camera-credentials -n cameras \
+#     --from-literal=CAM_USER=<usuario> --from-literal=CAM_PASS=<password>
+# Acceso web: solo Tailscale (ver ADR-017 / tailscale serve en rp1), sin Ingress.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go2rtc
+  namespace: cameras
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate          # una sola conexión a la cámara a la vez
+  selector:
+    matchLabels:
+      app: go2rtc
+  template:
+    metadata:
+      labels:
+        app: go2rtc
+      annotations:
+        # cambiar el ConfigMap no reinicia el pod solo: kubectl rollout restart
+        config/version: "1"
+    spec:
+      containers:
+        - name: go2rtc
+          image: alexxit/go2rtc:1.9.15
+          # la imagen usa ENTRYPOINT tini; args reemplaza el CMD completo, incluido el binario
+          args: ["go2rtc", "-config", "/config/go2rtc.yaml"]
+          envFrom:
+            - secretRef:
+                name: camera-credentials
+          ports:
+            - name: http
+              containerPort: 1984
+            - name: rtsp
+              containerPort: 8554
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+          # tcpSocket: con basic auth, httpGet /api devuelve 401 y la probe falla
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+      volumes:
+        - name: config
+          configMap:
+            name: go2rtc-config

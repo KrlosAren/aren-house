@@ -5,9 +5,17 @@ metadata:
   namespace: ntfy
 data:
   server.yml: |
-    base-url: "http://ntfy.k8s.homelab.local"
+    # Acceso solo via Tailscale (tailscale serve en rp1, puerto 8444) — sin Ingress
+    base-url: "https://rp1-master.tailb0ca85.ts.net:8444"
+    behind-proxy: true
+
     cache-file: /var/cache/ntfy/cache.db
     cache-duration: 12h
+
     auth-file: /var/lib/ntfy/user.db
     auth-default-access: deny-all
-    behind-proxy: true
+
+    # iOS: Apple solo entrega push vía APNs. ntfy.sh recibe un "poll request"
+    # con el ID del mensaje (NO el contenido) y despierta la app, que luego
+    # descarga el mensaje desde este servidor.
+    upstream-base-url: "https://ntfy.sh"

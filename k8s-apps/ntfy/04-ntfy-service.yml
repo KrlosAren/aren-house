@@ -4,6 +4,8 @@ metadata:
   name: ntfy
   namespace: ntfy
 spec:
+  # IP fija: `tailscale serve` en rp1 apunta aquí (rp1 no resuelve DNS del cluster)
+  clusterIP: 10.43.200.10
   selector:
     app: ntfy
   ports:

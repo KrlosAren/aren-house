@@ -11,6 +11,15 @@
   hosts: gateway
   become: yes
 
+  vars:
+    tailscale_serve:
+      - name: go2rtc            # cámara Tapo C110 → https://rp1-master.<tailnet>.ts.net:8443
+        port: 8443
+        target: http://10.43.92.177:1984   # Service go2rtc (ns cameras), clusterIP fija
+      - name: ntfy              # notificaciones push → https://rp1-master.<tailnet>.ts.net:8444
+        port: 8444
+        target: http://10.43.200.10:80     # Service ntfy (ns ntfy), clusterIP fija
+
   tasks:
     - name: Instalar Tailscale via script oficial
       shell: curl -fsSL https://tailscale.com/install.sh | sh
@@ -35,6 +44,23 @@
         state: present
         reload: yes
       tags: config
+
+    # --- tailscale serve: publica servicios k8s SOLO dentro del tailnet (ADR-017) ---
+    # Requiere "HTTPS Certificates" habilitado en login.tailscale.com/admin/dns
+    # El destino es una clusterIP fija (rp1 no resuelve DNS del cluster).
+    - name: Leer configuración actual de tailscale serve
+      command: tailscale serve status --json
+      register: ts_serve
+      changed_when: false
+      failed_when: false
+      check_mode: false   # solo lectura: corre también en --check
+      tags: serve
+
+    - name: Publicar servicios via tailscale serve
+      command: "tailscale serve --bg --https={{ item.port }} {{ item.target }}"
+      loop: "{{ tailscale_serve }}"
+      when: (':' ~ item.port) not in ts_serve.stdout
+      tags: serve
 
     - name: Verificar estado de Tailscale
       command: tailscale status

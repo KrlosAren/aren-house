@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: go2rtc-config
+  namespace: cameras
+data:
+  go2rtc.yaml: |
+    # Sin auth a propósito: NO hay Ingress. Acceso solo via Tailscale
+    # (tailscale serve en rp1 → https://rp1-master.tailb0ca85.ts.net:8443).
+    # Si algún día se agrega un Ingress, volver a poner username/password aquí.
+    api:
+      listen: ":1984"
+    rtsp:
+      listen: ":8554"
+    log:
+      level: info
+
+    # go2rtc expande ${VAR} con variables de entorno (vienen del Secret camera-credentials)
+    # Cámara Tapo en 192.168.1.162 — stream1: 2304x1296 H.264 + audio PCM A-law 8kHz
+    #                                 stream2: baja resolución
+    streams:
+      casona:
+        - rtsp://${CAM_USER}:${CAM_PASS}@192.168.1.162:554/stream1
+        - ffmpeg:casona#audio=aac
+      casona_sub:
+        - rtsp://${CAM_USER}:${CAM_PASS}@192.168.1.162:554/stream2

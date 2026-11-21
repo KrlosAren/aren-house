@@ -42,3 +42,4 @@ Cada ADR sigue esta estructura:
 | 010 | [K3s Storage en Discos Locales](010-k3s-storage-on-nfs.md) | Aceptado | 2026-01-23 |
 | 011 | [MetalLB para LoadBalancer](011-metallb.md) | Aceptado | 2026-01-31 |
 | 012 | [K3s sobre Kubernetes Vanilla](012-k3s-over-k8s.md) | Aceptado | 2026-01-23 |
+| 017 | [tailscale serve en vez de Ingress para servicios sensibles](017-tailscale-serve-para-servicios-sensibles.md) | Aceptado | 2026-11-21 |

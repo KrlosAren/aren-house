@@ -63,6 +63,16 @@ Tailscale VPN: 100.x.x.x (mesh, bypasses CGNAT)
 | rp3-node | 10.0.0.3 | 2c:cf:67:a9:b9:13 | k3s worker |
 | switch | 10.0.0.5 | ec:75:0c:ff:fc:d6 | TP-Link SG105PE |
 
+**Red de la casa (módem Movistar 192.168.1.0/24, WiFi "casona") — fuera del homelab:**
+
+| Device | IP | MAC | Rol |
+|--------|----|-----|-----|
+| Módem Movistar (MitraStar) | 192.168.1.1 | 44:3b:14:fc:15:c0 | Router ISP, DHCP de la casa |
+| rp1 WAN | 192.168.1.89 | 00:e0:4c:68:3d:a2 | `enx00e04c683da2` |
+| Cámara Tapo C110 | 192.168.1.162 (reservada en el módem) | 3c:78:95:4c:6b:a4 | WiFi 2.4 "casona", RTSP :554, consumida por go2rtc |
+
+Los pods alcanzan 192.168.1.x vía el MASQUERADE de rp1. Para ver equipos WiFi de la casa, escanear desde rp1 (cableado) — desde la Mac por WiFi se pierden dispositivos 2.4 GHz en ahorro de energía.
+
 | Red | Rango | Uso |
 |-----|-------|-----|
 | LAN | 10.0.0.0/24 | Red física |
@@ -158,10 +168,32 @@ Cliente → DNS → *.k8s.homelab.local → 192.168.1.89 (WAN rp1)
 - `*.homelab.local` → 10.0.0.1 (Traefik Docker, servicios legacy)
 - `*.k8s.homelab.local` → IP WAN rp1 → DNAT → MetalLB 10.0.0.50
 
-Para exponer un servicio nuevo:
-1. `Service` (ClusterIP) apuntando a los pods
-2. `Ingress` con host `miapp.k8s.homelab.local`
-3. DNS ya resuelve automáticamente
+⚠️ **El DNAT solo aplica a tráfico que entra por la WAN** (`-i enx00e04c683da2`). Consecuencias:
+- Todo Ingress es visible para **cualquiera en el WiFi "casona"** (invitados incluidos). No exponer por Ingress apps sin login.
+- Desde fuera de casa (Tailscale) los Ingress **no** funcionan.
+
+### Dos formas de exponer un servicio
+
+| | Ingress (Traefik) | `tailscale serve` en rp1 (ADR-017) |
+|---|---|---|
+| URL | `http://miapp.k8s.homelab.local` | `https://rp1-master.tailb0ca85.ts.net:<puerto>` |
+| Quién accede | Cualquiera en "casona" | Solo dispositivos del tailnet |
+| Desde fuera de casa | ❌ | ✅ |
+| TLS | ❌ (Cert-Manager pendiente) | ✅ Let's Encrypt automático |
+| Usar para | Apps no sensibles o con login propio | Apps sensibles / sin auth (cámara, notificaciones) |
+
+**Ingress:** `Service` (ClusterIP) + `Ingress` con host `miapp.k8s.homelab.local`. DNS ya resuelve.
+
+**tailscale serve:**
+1. Fijar `spec.clusterIP` en el Service (rp1 no resuelve el DNS del cluster; si el Service se recrea la IP cambiaría)
+2. Agregar entrada a `tailscale_serve` en `homelab-ansible/playbooks/tailscale.yml`
+3. `ansible-playbook playbooks/tailscale.yml --tags serve`
+4. Puertos 8443+ (el 443 de rp1 lo ocupa Traefik Docker)
+
+| Puerto | App | ClusterIP |
+|---|---|---|
+| 8443 | go2rtc | 10.43.92.177:1984 |
+| 8444 | ntfy | 10.43.200.10:80 |
 
 ---
 
@@ -171,17 +203,19 @@ Para exponer un servicio nuevo:
 |---|---|---|
 | `local-path` (default) | rancher.io/local-path | Todas las apps stateful |
 
-- **Longhorn removido** (ADR-016) — causaba bloqueos de kernel en rp3 (iSCSI). Todos los PVCs migrados a `local-path`.
+- **Longhorn removido** (ADR-016) — causaba bloqueos de kernel en rp3 (iSCSI). StorageClasses `longhorn`/`longhorn-static`, PVs huérfanos y CSIDriver eliminados (nov 2026). `local-path` es la **única** StorageClass default.
+- **Siempre declarar `storageClassName: local-path`** en PVCs y en values de Helm (ej. Redis de falcosidekick, Loki) — no depender del default.
 - **local-path** usa `WaitForFirstConsumer` — el PVC permanece Pending hasta que un Pod lo use, esto es normal.
-- Los pods stateful tienen `nodeAffinity` explícita — si se mueven de nodo pierden sus datos.
+- Los pods stateful tienen `nodeSelector` explícito — si se mueven de nodo pierden sus datos. Preferir workers (SSD), no rp1.
 - Paths en workers: `/mnt/ssd` (SSD montado), `/mnt/ssd/rancher`, `/mnt/ssd/docker`
+- Si un PV/namespace queda en `Terminating` por finalizers de un driver que ya no existe: `kubectl patch pv <pv> --type merge -p '{"metadata":{"finalizers":null}}'` (solo si el driver fue removido).
 
-| App | Nodo pinado | Tamaño |
-|-----|-------------|--------|
-| Prometheus | rp2-node | 20Gi |
-| Grafana | rp3-node | 5Gi |
-| n8n | rp3-node | 5Gi |
-| Registry | — | — |
+| App | Nodo pinado | Tamaño | Estado |
+|-----|-------------|--------|--------|
+| ntfy | rp3-node | 2Gi | Desplegado |
+| Prometheus | rp2-node | 20Gi | Manifiestos, no desplegado |
+| Grafana | rp3-node | 5Gi | Manifiestos, no desplegado |
+| n8n | rp3-node | 5Gi | Manifiestos, no desplegado |
 
 ---
 
@@ -203,17 +237,29 @@ NFS/TFTP instalados pero inactivos (nodos bootean desde SSD local).
 
 ## Apps k8s desplegadas
 
-| App | Namespace | StorageClass | Ingress |
-|-----|-----------|-------------|---------|
-| Prometheus | monitoring | local-path (20Gi, rp2) | prometheus.k8s.homelab.local |
-| Grafana | monitoring | local-path (5Gi, rp3) | grafana.k8s.homelab.local |
-| Alertmanager | monitoring | local-path (2Gi) | alertmanager.k8s.homelab.local |
-| Blackbox Exporter | monitoring | — | — |
-| kube-state-metrics | monitoring | — | — |
-| n8n | n8n-system | local-path (5Gi, rp3) | n8n.k8s.homelab.local |
-| Registry | registry | local-path (rp2) | registry.k8s.homelab.local |
-| ntfy | ntfy-system | local-path | ntfy.k8s.homelab.local (pendiente desplegar) |
-| kite | kube-system | — | kite.k8s.homelab.local |
+Estado real del cluster (nov 2026). Verificar con `kubectl get ns` y `kubectl get pods -A` — **no asumir** que una app corre solo porque tiene manifiestos.
+
+| App | Namespace | Storage | Acceso |
+|-----|-----------|---------|--------|
+| go2rtc (cámara C110) | cameras | — (stateless) | `https://rp1-master.tailb0ca85.ts.net:8443` (tailscale serve) |
+| ntfy | ntfy | local-path (2Gi, rp3) | `https://rp1-master.tailb0ca85.ts.net:8444` (tailscale serve) |
+| MetalLB | metallb-system | — | — |
+| kite | kube-system | — | sin Ingress |
+
+**Con manifiestos en `k8s-apps/` pero NO desplegadas** (borradas a propósito junto con Longhorn): `monitoring-stack/` (Prometheus, Grafana, Alertmanager, Blackbox, kube-state-metrics), `n8n/`, `registry/`. Al redesplegarlas, revisar los Ingress (ver "Dos formas de exponer un servicio").
+
+**Sin desplegar aún:** `argocd/` (solo namespace + Ingress), `falco/` (Helm values; tiene un `TODO(human)` en `sockets:` — en k3s es `/run/k3s/containerd/containerd.sock`).
+
+### go2rtc
+- Credenciales RTSP en el Secret `camera-credentials` (ns `cameras`), creado con `kubectl create secret` — **no está en git**. Comando en el header de `02-go2rtc-deployment.yml`.
+- Streams: `casona` (2304x1296 + audio AAC) y `casona_sub` (baja resolución). Ver: `.../stream.html?src=casona`
+- Sin auth en go2rtc a propósito: no tiene Ingress, el acceso lo controla Tailscale.
+- La imagen usa ENTRYPOINT `tini`: en `args` hay que incluir el binario (`["go2rtc", "-config", ...]`).
+
+### ntfy
+- `auth-default-access: deny-all`. Usuario `admin`, password en el Secret `ntfy-admin` (ns `ntfy`, no está en git): `kubectl get secret ntfy-admin -n ntfy -o jsonpath='{.data.password}' | base64 -d`
+- `upstream-base-url: https://ntfy.sh` es necesario para push instantáneo en iOS (solo envía el ID del mensaje, no el contenido).
+- Publicadores dentro del cluster: `http://ntfy.ntfy.svc.cluster.local/<topic>`. Topic de pruebas: `homelab`.
 
 ---
 
@@ -224,6 +270,7 @@ NFS/TFTP instalados pero inactivos (nodos bootean desde SSD local).
 - Corre en self-hosted runner (`[self-hosted, homelab]`) en rp1-master
 - Security gate previo verifica que el actor sea el owner del repo (protección contra fork PRs maliciosos)
 - Pushea a `registry.k8s.homelab.local` con tags: SHA completo, SHA corto, `latest`
+- ⚠️ El registry **no está desplegado** actualmente → el workflow fallará hasta redesplegar `k8s-apps/registry/`
 - Para agregar una nueva app: agregar detección en `detect-changes` y un nuevo job `build-<app>`
 
 ---
@@ -232,9 +279,9 @@ NFS/TFTP instalados pero inactivos (nodos bootean desde SSD local).
 
 | Stack | Estado |
 |-------|--------|
-| `stacks/observability/` | Migrado → `k8s-apps/monitoring-stack/` |
-| `stacks/n8n/` | Migrado → `k8s-apps/n8n/` |
-| `stacks/registry/` | Migrado → `k8s-apps/registry/` |
+| `stacks/observability/` | Manifiestos en `k8s-apps/monitoring-stack/` (no desplegado) |
+| `stacks/n8n/` | Manifiestos en `k8s-apps/n8n/` (no desplegado) |
+| `stacks/registry/` | Manifiestos en `k8s-apps/registry/` (no desplegado) |
 | `stacks/pihole/` | En Docker, pendiente migrar |
 | `stacks/router/` | Traefik Docker, coexiste con Traefik k3s |
 | `stacks/storage-apps/` | PostgreSQL en Docker+systemd (ADR-013, fuera del cluster) |
@@ -256,7 +303,7 @@ Ansible corre desde Mac. Nodos accesibles via ProxyJump por rp1.
 | `docker.yml` | Instalar Docker | nodes |
 | `local-storage.yml` | Montar SSD en /mnt/ssd | nodes |
 | `dns-client.yml` | resolv.conf estático en workers (10.0.0.1) | nodes |
-| `tailscale.yml` | VPN mesh | all |
+| `tailscale.yml` | VPN mesh + `tailscale serve` (`--tags serve`, lista `tailscale_serve`) | gateway |
 | `node-exporter.yml` | Prometheus metrics | all |
 | `registry.yml` | Registry privado + registries.yaml en nodos | gateway |
 | `github-runner.yml` | Self-hosted CI/CD runner | gateway |
@@ -271,7 +318,9 @@ Ansible corre desde Mac. Nodos accesibles via ProxyJump por rp1.
 
 ### Código y configuración
 - Manifiestos k8s van en `k8s-apps/<nombre-app>/` con archivos numerados (`01-`, `02-`, etc.)
-- Playbooks Ansible se prueban con `--check` antes de aplicar en producción
+- Playbooks Ansible se prueban con `--check` antes de aplicar en producción (ojo: `command`/`shell` se saltan en `--check`; tareas de solo lectura llevan `check_mode: false`)
+- Imágenes con versión fija (no `latest`), preferir releases con ≥2 semanas
+- Secrets: crear con `kubectl create secret`, nunca en git. `k8s-apps/n8n/secrets/00-secrets.yml` está trackeado (el `.gitignore` solo cubre `secrets.yml`) — pendiente revisar
 - Todos los nodos usan usuario `admin` con UID 1000
 - Commits en español
 
@@ -337,6 +386,9 @@ kubectl get pods -n metallb-system
 ansible-playbook playbooks/metallb.yml
 ```
 
+### Probe falla tras agregar auth a una app
+`httpGet` a un endpoint autenticado devuelve 401 → readiness falla → rollout se cuelga. Usar `tcpSocket` o un endpoint de health sin auth.
+
 ### Nodo sin IP
 Los nodos usan netplan (no DHCP). Verificar `/etc/netplan/01-network.yaml` y `sudo netplan apply`.
 
@@ -362,15 +414,21 @@ aren-house/
 │   ├── playbooks/
 │   └── roles/                 # dnsmasq, wireguard, nfs
 ├── k8s-apps/
+│   ├── argocd/                # namespace + ingress (no desplegado)
+│   ├── falco/                 # Helm values (no desplegado)
+│   ├── go2rtc/                # cámara Tapo C110 (desplegado, ns cameras)
+│   ├── kite/
+│   ├── longhorn/              # restos, obsoleto (ADR-016)
 │   ├── metallb/               # IP pool config
-│   ├── monitoring-stack/      # Prometheus, Grafana, Alertmanager, Blackbox
-│   ├── n8n/
-│   ├── ntfy/                  # manifiestos listos, pendiente desplegar
-│   ├── registry/
+│   ├── monitoring-stack/      # Prometheus, Grafana, Alertmanager, Blackbox (no desplegado)
+│   ├── n8n/                   # (no desplegado)
+│   ├── ntfy/                  # desplegado
+│   ├── registry/              # (no desplegado)
+│   ├── storage-learning/
 │   └── test-app/
 ├── stacks/                    # Docker Compose (migración en curso)
 └── docs/
-    ├── decisions/             # ADRs 001-016
+    ├── decisions/             # ADRs 001-017
     ├── concepts/
     ├── guides/                # firewall.md, k3s-guide.md, network-troubleshooting.md
     ├── reference/             # IPs, URLs, comandos
@@ -383,12 +441,16 @@ aren-house/
 
 - [x] k3s cluster
 - [x] MetalLB
-- [x] Prometheus + Grafana en k8s
-- [x] Alertmanager en k8s
-- [x] Registry privado en k8s
-- [x] n8n en k8s
-- [x] CI/CD con GitHub Actions (self-hosted runner)
-- [ ] ntfy (manifiestos completos en `k8s-apps/ntfy/`, falta `kubectl apply`)
+- [x] CI/CD con GitHub Actions (self-hosted runner) — roto mientras el registry no esté desplegado
+- [x] ntfy (via tailscale serve)
+- [x] go2rtc para cámara Tapo C110 (via tailscale serve)
+- [x] Limpieza de restos de Longhorn (StorageClasses, PV, CSIDriver)
+- [x] ADR-017: servicios sensibles via `tailscale serve` en vez de Ingress
+- [ ] Redesplegar monitoring-stack, n8n, registry (revisar exposición de Ingress)
+- [ ] Revisar `k8s-apps/n8n/secrets/00-secrets.yml` en git (¿credenciales reales en el historial?)
+- [ ] Falco (completar `sockets:` en values) + falcosidekick → ntfy
+- [ ] Frigate (detección/grabación sobre `casona_sub`) + alertas a ntfy
+- [ ] Router/AP en modo bridge (Archer C6 o Mercusys MR30G) para red IoT en 10.0.0.x → bloquear internet a la cámara con UFW
 - [ ] Loki (logs centralizados)
 - [ ] Cert-Manager (TLS)
 - [ ] Migrar Pi-hole al cluster
@@ -409,3 +471,4 @@ aren-house/
 | 014 | Boot desde SSD local sobre netboot PXE/NFS |
 | 015 | IPs estáticas via netplan sobre DHCP en nodos |
 | 016 | local-path sobre Longhorn (iSCSI causaba bloqueos de kernel en rp3) |
+| 017 | `tailscale serve` en vez de Ingress para servicios sensibles (cámara, ntfy) |
