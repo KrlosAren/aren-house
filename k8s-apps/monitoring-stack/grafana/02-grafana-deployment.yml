@@ -80,6 +80,13 @@ spec:
         - name: dashboard-provider
           configMap:
             name: grafana-dashboard-provider
+        # projected: varios ConfigMaps en un mismo directorio (un configMap volume solo admite uno)
         - name: dashboard-pods
-          configMap:
-            name: grafana-dashboard-pods
+          projected:
+            sources:
+              - configMap:
+                  name: grafana-dashboard-pods
+              - configMap:
+                  name: grafana-dashboard-frigate
+              - configMap:
+                  name: grafana-dashboard-nodes

@@ -1,0 +1,59 @@
+# Playbook: disable-iscsi.yml
+# Propósito: Apagar iSCSI, resto de Longhorn (ADR-016: iSCSI causaba bloqueos de kernel en rp3).
+#
+# Uso:
+#   ansible-playbook playbooks/disable-iscsi.yml --check
+#   ansible-playbook playbooks/disable-iscsi.yml
+#
+# - Aborta si hay sesiones iSCSI activas (cortar iscsid con un volumen montado puede colgar el nodo).
+# - mask (no solo disable): iscsid.socket lo re-activaría bajo demanda.
+# - No desinstala open-iscsi: reversible con `systemctl unmask`.
+- name: Desactivar iSCSI (resto de Longhorn)
+  hosts: all
+  become: yes
+
+  vars:
+    iscsi_units:
+      - iscsid.socket
+      - iscsid.service
+      - open-iscsi.service
+
+  tasks:
+    - name: Verificar que no haya sesiones iSCSI activas
+      command: iscsiadm -m session
+      register: iscsi_sessions
+      changed_when: false
+      failed_when: false
+      check_mode: false   # solo lectura: corre también en --check
+
+    - name: Abortar si hay sesiones activas
+      fail:
+        msg: "Hay sesiones iSCSI activas en {{ inventory_hostname }}: {{ iscsi_sessions.stdout }}"
+      when: iscsi_sessions.rc == 0 and iscsi_sessions.stdout | length > 0
+
+    - name: Detener, deshabilitar y enmascarar units iSCSI
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: no
+        masked: yes
+      loop: "{{ iscsi_units }}"
+
+    - name: Descargar módulos del kernel iSCSI
+      modprobe:
+        name: "{{ item }}"
+        state: absent
+      loop:
+        - iscsi_tcp
+        - libiscsi_tcp
+        - libiscsi
+        - scsi_transport_iscsi
+      failed_when: false   # puede no estar cargado o en uso por otro módulo de la lista
+
+    - name: No cargar módulos iSCSI en el arranque
+      copy:
+        dest: /etc/modprobe.d/blacklist-iscsi.conf
+        content: |
+          # Gestionado por Ansible (disable-iscsi.yml) — iSCSI no se usa desde ADR-016
+          blacklist iscsi_tcp
+        mode: '0644'

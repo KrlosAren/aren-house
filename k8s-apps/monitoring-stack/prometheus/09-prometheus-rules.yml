@@ -4,8 +4,12 @@ metadata:
   name: prometheus-rules
   namespace: monitoring
 data:
+  # Alertas → Alertmanager → ntfy topic "alertas" (critical con prioridad alta).
+  # Validar antes de aplicar:  promtool check rules <archivo>
+  # Severidades: critical = actuar ya | warning = revisar hoy | info = solo registro
   homelab.rules.yml: |
     groups:
+      # ------------------------------------------------------------------ Nodos (hardware)
       - name: nodos
         rules:
           - alert: NodoSinRespuesta
@@ -14,55 +18,155 @@ data:
             labels:
               severity: critical
             annotations:
-              summary: "Nodo {{ $labels.instance }} sin respuesta"
-              description: "node-exporter en {{ $labels.instance }} lleva más de 2 minutos sin responder."
+              summary: "{{ $labels.node }} sin respuesta"
+              description: "node-exporter en {{ $labels.node }} ({{ $labels.instance }}) lleva más de 2 minutos sin responder. ¿Nodo apagado o sin red?"
 
-          - alert: CargaCPUAlta
-            expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+          - alert: CPUAlta
+            expr: 100 * (1 - avg by (node) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 85
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "CPU alta en {{ $labels.node }}"
+              description: "CPU al {{ $value | printf \"%.0f\" }}% en {{ $labels.node }} por más de 10 minutos."
+
+          - alert: MemoriaAlta
+            expr: 100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 90
             for: 5m
             labels:
               severity: warning
             annotations:
-              summary: "CPU alta en {{ $labels.instance }}"
-              description: "CPU al {{ $value | printf \"%.0f\" }}% en {{ $labels.instance }} por más de 5 minutos."
+              summary: "Memoria alta en {{ $labels.node }}"
+              description: "Memoria al {{ $value | printf \"%.0f\" }}% en {{ $labels.node }}. Riesgo de OOM killer."
 
-          - alert: MemoriaAltaNodo
-            expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+          - alert: DiscoLleno
+            expr: 100 * (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}) > 85
             for: 5m
             labels:
               severity: warning
             annotations:
-              summary: "Memoria alta en {{ $labels.instance }}"
-              description: "Memoria al {{ $value | printf \"%.0f\" }}% en {{ $labels.instance }}."
+              summary: "Disco al {{ $value | printf \"%.0f\" }}% en {{ $labels.node }}"
+              description: "El disco raíz de {{ $labels.node }} supera el 85%. En rp2 revisar grabaciones de Frigate."
 
-          - alert: DiscoLlenoNodo
-            expr: (1 - (node_filesystem_avail_bytes{fstype!="tmpfs",mountpoint="/"} / node_filesystem_size_bytes{fstype!="tmpfs",mountpoint="/"})) * 100 > 80
+          - alert: DiscoSeLlenaEn24h
+            # Tendencia de las últimas 6h proyectada a 24h. Avisa ANTES de que se llene.
+            expr: predict_linear(node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}[6h], 24 * 3600) < 0
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "El disco de {{ $labels.node }} se llenará en menos de 24h"
+              description: "Al ritmo de escritura de las últimas 6 horas, el disco raíz de {{ $labels.node }} se queda sin espacio en menos de un día."
+
+          - alert: TemperaturaAlta
+            expr: node_thermal_zone_temp > 75
             for: 5m
             labels:
               severity: warning
             annotations:
-              summary: "Disco lleno en {{ $labels.instance }}"
-              description: "Disco al {{ $value | printf \"%.0f\" }}% en {{ $labels.instance }}."
+              summary: "{{ $labels.node }} a {{ $value | printf \"%.0f\" }} °C"
+              description: "Temperatura sobre 75 °C por 5 minutos. Revisar ventilación/disipador."
 
+          - alert: TemperaturaCritica
+            expr: node_thermal_zone_temp > 82
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.node }} a {{ $value | printf \"%.0f\" }} °C — throttling"
+              description: "La Pi 5 está reduciendo frecuencia por temperatura. El rendimiento cae (Frigate puede perder frames)."
+
+          - alert: PresionIOAlta
+            # % del tiempo con procesos esperando disco. Fue el síntoma de los bloqueos iSCSI (ADR-016).
+            expr: rate(node_pressure_io_waiting_seconds_total[5m]) > 0.3
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Disco saturado en {{ $labels.node }}"
+              description: "Los procesos pasan {{ $value | humanizePercentage }} del tiempo esperando I/O."
+
+          - alert: PresionMemoriaAlta
+            expr: rate(node_pressure_memory_waiting_seconds_total[5m]) > 0.1
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Presión de memoria en {{ $labels.node }}"
+              description: "El kernel está reclamando memoria ({{ $value | humanizePercentage }} del tiempo). Antesala del OOM killer."
+
+          - alert: RelojDesincronizado
+            expr: node_timex_sync_status == 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Reloj desincronizado en {{ $labels.node }}"
+              description: "NTP (chrony) no sincroniza. Hora incorrecta rompe TLS, tokens y certificados."
+
+          - alert: NodoReiniciado
+            expr: changes(node_boot_time_seconds[15m]) > 0
+            labels:
+              severity: info
+            annotations:
+              summary: "{{ $labels.node }} se reinició"
+              description: "{{ $labels.node }} arrancó en los últimos 15 minutos. Si no fue planificado: corte de luz, kernel panic o watchdog."
+
+      # ------------------------------------------------------------------ Servicios (systemd)
+      - name: servicios
+        rules:
+          - alert: ServicioCaido
+            # Units de node_exporter_systemd_units (homelab-ansible/playbooks/node-exporter.yml)
+            expr: node_systemd_unit_state{state="active"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.name }} caído en {{ $labels.node }}"
+              description: "El servicio {{ $labels.name }} no está activo en {{ $labels.node }}. Ver: ssh … 'systemctl status {{ $labels.name }}'"
+
+          - alert: ServicioFallido
+            expr: node_systemd_unit_state{state="failed"} == 1
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.name }} en estado failed en {{ $labels.node }}"
+              description: "systemd marcó {{ $labels.name }} como failed. Ver: journalctl -u {{ $labels.name }} -n 50"
+
+          - alert: ProbeFallido
+            # Blackbox: ping y banner SSH a cada nodo (vista "desde fuera" del nodo)
+            expr: probe_success == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.job }} falla hacia {{ $labels.node }}"
+              description: "Blackbox no logra {{ $labels.job }} contra {{ $labels.instance }} hace 2 minutos."
+
+      # ------------------------------------------------------------------ Kubernetes
       - name: kubernetes
         rules:
           - alert: PodCrashLooping
-            expr: rate(kube_pod_container_status_restarts_total[15m]) * 60 > 0
-            for: 5m
+            # > 3 reinicios en 15 min (antes: rate > 0 disparaba con un solo reinicio)
+            expr: increase(kube_pod_container_status_restarts_total[15m]) > 3
             labels:
               severity: warning
             annotations:
-              summary: "Pod en CrashLoop: {{ $labels.pod }}"
-              description: "El pod {{ $labels.namespace }}/{{ $labels.pod }} está reiniciando continuamente."
+              summary: "CrashLoop: {{ $labels.namespace }}/{{ $labels.pod }}"
+              description: "El contenedor {{ $labels.container }} reinició {{ $value | printf \"%.0f\" }} veces en 15 minutos. Ver: kubectl logs -n {{ $labels.namespace }} {{ $labels.pod }} --previous"
 
           - alert: PodNoListo
-            expr: kube_pod_status_ready{condition="true"} == 0
-            for: 5m
+            # Excluye pods de Jobs terminados (Succeeded nunca están ready)
+            expr: |
+              kube_pod_status_ready{condition="true"} == 0
+              unless on (namespace, pod) kube_pod_status_phase{phase="Succeeded"} == 1
+            for: 10m
             labels:
               severity: warning
             annotations:
-              summary: "Pod no listo: {{ $labels.pod }}"
-              description: "El pod {{ $labels.namespace }}/{{ $labels.pod }} lleva 5 minutos sin estar ready."
+              summary: "Pod no listo: {{ $labels.namespace }}/{{ $labels.pod }}"
+              description: "Lleva 10 minutos sin estar ready. Ver: kubectl describe pod -n {{ $labels.namespace }} {{ $labels.pod }}"
 
           - alert: NodoK8sNoListo
             expr: kube_node_status_condition{condition="Ready",status="true"} == 0
@@ -71,26 +175,56 @@ data:
               severity: critical
             annotations:
               summary: "Nodo k8s no listo: {{ $labels.node }}"
-              description: "El nodo {{ $labels.node }} no tiene condición Ready."
-          
-          - alert: LonghornDiskCritical
-            expr: |
-              longhorn_disk_health_attribute_raw{attribute="Program_Fail_Count"} > 0
-              or longhorn_disk_health_attribute_raw{attribute="Erase_Fail_Count"} > 0
-              or longhorn_disk_health_attribute_raw{attribute="Offline_Uncorrectable"} > 0
-              or longhorn_disk_health_attribute_raw{attribute="Current_Pending_ECC_Cnt"} > 0
-            for: 1m
-            labels:
-              severity: critical
-            annotations:
-              summary: "Error crítico en disco {{ $labels.node }}"
-              description: "Atributo {{ $labels.attribute }} = {{ $value }} en {{ $labels.disk }}"
+              description: "El nodo {{ $labels.node }} perdió la condición Ready. Los pods pinados a él (con PV local-path) no pueden moverse."
 
-          - alert: LonghornUnexpectedPowerLoss
-            expr: longhorn_disk_health_attribute_raw{attribute="Unexpect_Power_Loss_Ct"} > 50
-            for: 1m
+          - alert: PVCCasiLleno
+            expr: 100 * kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes > 85
+            for: 15m
             labels:
               severity: warning
             annotations:
-              summary: "Muchos apagados bruscos en {{ $labels.node }}"
-              description: "{{ $value }} pérdidas de energía inesperadas detectadas"
+              summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} al {{ $value | printf \"%.0f\" }}%"
+              description: "Nota: local-path no impone el tamaño; el límite real es el disco del nodo."
+
+      # ------------------------------------------------------------------ Cámara / Frigate
+      - name: frigate
+        rules:
+          - alert: CamaraSinVideo
+            expr: frigate_camera_fps < 1
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Cámara {{ $labels.camera_name }} sin video"
+              description: "Frigate recibe {{ $value | printf \"%.1f\" }} fps hace 5 minutos. ¿Tapo C110 desconectada, IP cambiada (reserva DHCP) o go2rtc caído?"
+
+          - alert: FrigatePierdeFrames
+            expr: frigate_skipped_fps > 1
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Frigate pierde frames en {{ $labels.camera_name }}"
+              description: "Salta {{ $value | printf \"%.1f\" }} fps: la CPU de rp2 no da abasto (¿temperatura? ¿acelerador?)."
+
+          - alert: InferenciaLenta
+            expr: frigate_detector_inference_speed_seconds > 0.1
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Inferencia lenta en Frigate ({{ $value | humanizeDuration }})"
+              description: "El detector {{ $labels.name }} tarda más de 100 ms por inferencia (normal: ~10 ms)."
+
+      # ------------------------------------------------------------------ El propio monitoreo
+      - name: monitoreo
+        rules:
+          - alert: TargetCaido
+            # node-exporter tiene su propia alerta (NodoSinRespuesta)
+            expr: up{job!="node-exporter"} == 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Prometheus no puede leer {{ $labels.job }}"
+              description: "El target {{ $labels.instance }} (job {{ $labels.job }}) no responde hace 5 minutos."

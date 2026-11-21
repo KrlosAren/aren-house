@@ -13,6 +13,20 @@
     node_exporter_version: "1.7.0"
     node_exporter_arch: "arm64"
     node_exporter_port: 9100
+    # Collector systemd: estado de los servicios críticos (dashboard "Nodos" en Grafana).
+    # Solo estos units → evita exportar los ~200 units de cada nodo (cardinalidad).
+    node_exporter_systemd_units:
+      - k3s                # rp1 (control plane)
+      - k3s-agent          # rp2, rp3
+      - containerd
+      - docker
+      - dnsmasq            # rp1
+      - tailscaled         # rp1
+      - ssh
+      - chrony
+      - node_exporter
+      - ufw
+      - actions[.]runner[.].+  # GitHub Actions runner (rp1). [.] y no \. : systemd interpreta backslashes en ExecStart
 
   tasks:
     
@@ -73,7 +87,9 @@
 
           [Service]
           Type=simple
-          ExecStart=/usr/local/bin/node_exporter
+          ExecStart=/usr/local/bin/node_exporter \
+            --collector.systemd \
+            --collector.systemd.unit-include='({{ node_exporter_systemd_units | join('|') }})[.]service'
           Restart=always
           RestartSec=5
 
@@ -120,5 +136,6 @@
   handlers:
     - name: Reiniciar node_exporter
       systemd:
-        name: node_exporter 
+        name: node_exporter
         state: restarted
+        daemon_reload: yes   # sin esto systemd sigue usando el .service anterior

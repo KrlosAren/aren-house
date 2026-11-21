@@ -237,7 +237,11 @@ Cliente → DNS → *.k8s.homelab.local → 192.168.1.89 (WAN rp1)
 | PostgreSQL | Docker + systemd | Base de datos para apps k8s (5432) |
 | GitHub Actions Runner | systemd | CI/CD self-hosted |
 
-NFS/TFTP instalados pero inactivos (nodos bootean desde SSD local).
+NFS/TFTP instalados (nodos bootean desde SSD local). ⚠️ Los servicios NFS (`nfs-mountd`, `rpcbind`, …) **están corriendo** en rp1 aunque no se usan.
+
+**iSCSI desactivado** en los 3 nodos (`playbooks/disable-iscsi.yml`): `iscsid.socket`, `iscsid.service` y `open-iscsi.service` enmascarados + `blacklist iscsi_tcp`. Reversible con `systemctl unmask`. Resto de Longhorn (ADR-016).
+
+⚠️ **El GitHub Actions runner no está instalado** en rp1 (no hay unit `actions.runner.*` ni `~/actions-runner`).
 
 ---
 
@@ -295,8 +299,15 @@ Frigate --MQTT frigate/reviews--> Mosquitto --> frigate-notify --HTTP + snapshot
 - Targets: apiserver, kubelet, cAdvisor, pods anotados, node-exporter (systemd en los 3 nodos, :9100), blackbox ICMP/SSH, **Frigate** (`/api/metrics`), Prometheus, Alertmanager.
 - Alertmanager → ntfy self-hosted, topic **`alertas`**, `?template=alertmanager` (plantilla nativa de ntfy). Usuario ntfy `alertmanager` write-only; token en Secret `alertmanager-ntfy` (montado como `credentials_file`). Antes usaba un topic público de ntfy.sh.
 - Grafana secret cifrado con SOPS: `sops -d k8s-apps/monitoring-stack/grafana/secrets/05-grafana-secrets.yml | kubectl apply -f -` (llave age en la ubicación por defecto de sops).
+- **Alertas** (`prometheus/09-prometheus-rules.yml`, 22 reglas en 5 grupos): nodos (caído, CPU, memoria, disco + predicción 24h, temperatura 75/82 °C, PSI I/O y memoria, NTP, reinicio), servicios (systemd caído/failed, probes blackbox), kubernetes (CrashLoop >3 reinicios/15m, pod no listo excl. Succeeded, nodo NotReady, PVC >85%), frigate (cámara sin video, frames saltados, inferencia lenta), monitoreo (target caído).
+- Ruteo por severidad → prioridad ntfy: `critical` = 5 (repite c/1h), `warning` = 3 (c/4h), `info` = 2 (sin "resolved"). Inhibiciones: NodoSinRespuesta silencia el resto del nodo; TemperaturaCritica silencia TemperaturaAlta.
+- Validar antes de aplicar: `promtool check rules` (en el pod de Prometheus) y `amtool check-config` (en el de Alertmanager). Tras aplicar, esperar sync del ConfigMap y `POST /-/reload` en ambos.
 - Prueba de alerta: `kubectl exec -n monitoring deploy/alertmanager -- wget -qO- --header='Content-Type: application/json' --post-data='[{"labels":{"alertname":"Prueba","severity":"warning"}}]' http://localhost:9093/api/v2/alerts`
 - `spec.clusterIP` es inmutable: para fijarla en un Service existente hay que borrarlo y recrearlo.
+- Dashboards en carpeta "Homelab", montados juntos vía volumen `projected`: `Pods Monitor` (09), **`Frigate`** (10) y **`Nodos`** (11: hardware, PSI, servicios systemd, kernel/SO, red). Frigate y Nodos se **generan** con `grafana/dashboards/gen-*-dashboard.py` — editar el script y regenerar, no el YAML.
+- node-exporter (systemd, no k8s) tiene `--collector.systemd` limitado a los units de `node_exporter_systemd_units` en `playbooks/node-exporter.yml`. Agregar un servicio a vigilar = agregarlo a esa lista. El job de Prometheus pone el label `node` (rp1-master/rp2-node/rp3-node).
+- Scrape de Frigate descarta series `type="Other"` y las labels `cmdline`/`pid` (cambian en cada reinicio → alta cardinalidad).
+- Prometheus recarga config con `wget -qO- --post-data='' http://localhost:9090/-/reload`, pero el ConfigMap tarda ~1 min en llegar al pod: esperar antes de recargar.
 
 ### ntfy
 - `auth-default-access: deny-all`. Usuario `admin`, password en el Secret `ntfy-admin` (ns `ntfy`, no está en git): `kubectl get secret ntfy-admin -n ntfy -o jsonpath='{.data.password}' | base64 -d`
@@ -347,9 +358,10 @@ Ansible corre desde Mac. Nodos accesibles via ProxyJump por rp1.
 | `local-storage.yml` | Montar SSD en /mnt/ssd | nodes |
 | `dns-client.yml` | resolv.conf estático en workers (10.0.0.1) | nodes |
 | `tailscale.yml` | VPN mesh + `tailscale serve` (`--tags serve`, lista `tailscale_serve`) | gateway |
-| `node-exporter.yml` | Prometheus metrics | all |
+| `node-exporter.yml` | Prometheus metrics + collector systemd (`node_exporter_systemd_units`) | all |
 | `registry.yml` | Registry privado + registries.yaml en nodos | gateway |
 | `github-runner.yml` | Self-hosted CI/CD runner | gateway |
+| `disable-iscsi.yml` | Enmascara iSCSI (resto de Longhorn); aborta si hay sesiones activas | all |
 | `update-nodes.yml` | apt upgrade | nodes |
 | `reboot-nodes.yml` | Reinicio controlado | all |
 
@@ -485,7 +497,7 @@ aren-house/
 
 - [x] k3s cluster
 - [x] MetalLB
-- [x] CI/CD con GitHub Actions (self-hosted runner) — roto mientras el registry no esté desplegado
+- [x] CI/CD con GitHub Actions (self-hosted runner) — roto: falta el registry y el runner no está instalado
 - [x] ntfy (via tailscale serve)
 - [x] go2rtc para cámara Tapo C110 (via tailscale serve)
 - [x] Limpieza de restos de Longhorn (StorageClasses, PV, CSIDriver)
@@ -493,7 +505,15 @@ aren-house/
 - [x] Monitoring (Prometheus, Grafana, Alertmanager → ntfy, Blackbox, KSM, scrape Frigate)
 - [ ] Redesplegar n8n, registry (revisar exposición de Ingress)
 - [ ] Migrar Secrets creados a mano (camera-credentials, ntfy-admin, frigate-notify-ntfy, alertmanager-ntfy) a SOPS
-- [ ] Dashboard Grafana para Frigate
+- [x] Dashboard Grafana para Frigate
+- [x] Panel "CPU Usado por Pod" completado
+- [x] Dashboard Nodos + collector systemd en node-exporter
+- [x] iSCSI desactivado y enmascarado en los 3 nodos
+- [ ] Desactivar servicios NFS en rp1 si no se usan
+- [ ] Reinstalar GitHub Actions runner (`playbooks/github-runner.yml`) + registry para que el CI/CD vuelva a funcionar
+- [x] Alertas Prometheus (22 reglas) → ntfy `alertas` con prioridad por severidad
+- [ ] Alerta "dead man's switch" (Watchdog) hacia un servicio externo: hoy si cae todo el cluster, no llega ninguna alerta
+- [ ] Actualizar node_exporter (1.7.0 en el playbook)
 - [ ] Falco (completar `sockets:` en values) + falcosidekick → ntfy
 - [x] Frigate (detección por CPU, grabación solo eventos)
 - [x] Alertas de Frigate → ntfy (Mosquitto + frigate-notify, topic `camara`)

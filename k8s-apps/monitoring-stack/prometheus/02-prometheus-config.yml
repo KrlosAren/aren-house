@@ -106,14 +106,16 @@ data:
             target_label: kubernetes_pod_name
 
       # Node exporters
+      # Label "node" = nombre legible para dashboards/alertas (en vez de IP:puerto)
+      # Incluye collector systemd (playbooks/node-exporter.yml) → node_systemd_unit_state
       - job_name: 'node-exporter'
         static_configs:
-          - targets:
-              - "10.0.0.1:9100"
-              - "10.0.0.2:9100"
-              - "10.0.0.3:9100"
-            labels:
-              env: 'homelab'
+          - targets: ["10.0.0.1:9100"]
+            labels: {env: 'homelab', node: 'rp1-master'}
+          - targets: ["10.0.0.2:9100"]
+            labels: {env: 'homelab', node: 'rp2-node'}
+          - targets: ["10.0.0.3:9100"]
+            labels: {env: 'homelab', node: 'rp3-node'}
 
       # Blackbox — probe SSH (puerto 22 de cada nodo)
       - job_name: 'blackbox-ssh'
@@ -187,6 +189,19 @@ data:
         static_configs:
           - targets:
               - "frigate.cameras.svc.cluster.local:5000"
+        metric_relabel_configs:
+          # Procesos type="Other" duplican los de Camera/detectors con nombres = cmdline completo
+          - source_labels: [__name__, type]
+            regex: 'frigate_(cpu|mem)_usage_percent;Other'
+            action: drop
+          # El total del sistema solo trae pid="frigate.full_system" → darle un name antes de borrar pid
+          - source_labels: [pid]
+            regex: 'frigate\.full_system'
+            target_label: name
+            replacement: full_system
+          # cmdline y pid cambian en cada reinicio → series nuevas sin fin (alta cardinalidad)
+          - action: labeldrop
+            regex: 'cmdline|pid'
 
       ## alertmanager
       - job_name: 'alertmanager'
