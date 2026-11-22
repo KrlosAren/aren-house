@@ -23,9 +23,9 @@ kubectl logs -n <ns> <pod> --tail=50
 kubectl rollout restart deployment/<name> -n <ns>
 kubectl apply -f k8s-apps/<app>/
 
-# SSH a nodos
-ssh -J admin@100.107.98.121 admin@10.0.0.2   # via Tailscale
-ssh admin@10.0.0.1                            # gateway directo (si en LAN)
+# SSH a nodos (con Tailscale activo, vía subnet router de rp1)
+ssh admin@10.0.0.2                            # directo
+ssh -J admin@100.107.98.121 admin@10.0.0.2    # fallback si la ruta no está activa
 
 # Verificar estado del cluster
 kubectl get nodes -o wide
@@ -232,7 +232,7 @@ Cliente → DNS → *.k8s.homelab.local → 192.168.1.89 (WAN rp1)
 | dnsmasq | systemd | DHCP (LAN) + DNS (.homelab.local, .k8s.homelab.local) |
 | k3s server | systemd | Kubernetes control plane |
 | Traefik | Docker | Reverse proxy servicios legacy (:80/:443) |
-| Tailscale | systemd | VPN mesh + subnet router (10.0.0.0/24) |
+| Tailscale | systemd | VPN mesh + subnet router (10.0.0.0/24, en `tailscale.yml --tags routes`) + `tailscale serve` |
 | UFW | systemd | Firewall — reglas en /etc/ufw/before.rules |
 | PostgreSQL | Docker + systemd | Base de datos para apps k8s (5432) |
 | GitHub Actions Runner | systemd | CI/CD self-hosted |
@@ -451,7 +451,10 @@ Los nodos usan netplan (no DHCP). Verificar `/etc/netplan/01-network.yaml` y `su
 
 ### SSH a nodos desde Mac
 ```bash
-ssh -J admin@100.107.98.121 admin@10.0.0.2   # via Tailscale (preferido)
+ssh admin@10.0.0.2                            # directo vía subnet router (preferido)
+# Si falla: ¿rp1 anuncia la ruta? ssh admin@100.107.98.121 'tailscale debug prefs | grep -A2 AdvertiseRoutes'
+#   → ansible-playbook playbooks/tailscale.yml --tags routes  (usa `tailscale set`, NO `tailscale up` que resetea flags)
+ssh -J admin@100.107.98.121 admin@10.0.0.2   # fallback
 ssh -J admin@192.168.1.89 admin@10.0.0.2     # via WAN (si IP conocida)
 ```
 

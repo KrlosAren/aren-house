@@ -12,6 +12,8 @@
   become: yes
 
   vars:
+    tailscale_advertise_routes:
+      - 10.0.0.0/24        # LAN del cluster: nodos, MetalLB (10.0.0.50-60)
     tailscale_serve:
       - name: go2rtc            # cámara Tapo C110 → https://rp1-master.<tailnet>.ts.net:8443
         port: 8443
@@ -56,6 +58,21 @@
         state: present
         reload: yes
       tags: config
+
+    # --- Subnet router: expone la LAN 10.0.0.0/24 al tailnet ---
+    # Tras anunciarla, APROBAR en login.tailscale.com/admin/machines → rp1-master → Edit route settings.
+    # `tailscale set` (no `up`): cambia solo esta opción sin resetear el resto de flags.
+    - name: Leer rutas anunciadas actualmente
+      command: tailscale debug prefs
+      register: ts_prefs
+      changed_when: false
+      check_mode: false   # solo lectura: corre también en --check
+      tags: routes
+
+    - name: Anunciar subnet routes
+      command: "tailscale set --advertise-routes={{ tailscale_advertise_routes | join(',') }}"
+      when: (ts_prefs.stdout | from_json).AdvertiseRoutes | default([], true) | sort != tailscale_advertise_routes | sort
+      tags: routes
 
     # --- tailscale serve: publica servicios k8s SOLO dentro del tailnet (ADR-017) ---
     # Requiere "HTTPS Certificates" habilitado en login.tailscale.com/admin/dns
