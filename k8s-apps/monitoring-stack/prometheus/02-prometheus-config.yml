@@ -116,6 +116,8 @@ data:
             labels: {env: 'homelab', node: 'rp2-node'}
           - targets: ["10.0.0.3:9100"]
             labels: {env: 'homelab', node: 'rp3-node'}
+          - targets: ["10.0.0.4:9100"]
+            labels: {env: 'homelab', node: 'pc1-node'}
 
       # Blackbox — probe SSH (puerto 22 de cada nodo)
       - job_name: 'blackbox-ssh'
@@ -127,6 +129,7 @@ data:
               - "10.0.0.1:22"   # rp1-master
               - "10.0.0.2:22"   # rp2-node
               - "10.0.0.3:22"   # rp3-node
+              - "10.0.0.4:22"   # pc1-node
         relabel_configs:
           - source_labels: [__address__]
             target_label: __param_target
@@ -146,6 +149,10 @@ data:
             regex: '10\.0\.0\.3:22'
             target_label: node
             replacement: rp3-node
+          - source_labels: [instance]
+            regex: '10\.0\.0\.4:22'
+            target_label: node
+            replacement: pc1-node
 
       # Blackbox — ICMP ping a cada nodo
       - job_name: 'blackbox-icmp'
@@ -157,6 +164,7 @@ data:
               - "10.0.0.1"   # rp1-master
               - "10.0.0.2"   # rp2-node
               - "10.0.0.3"   # rp3-node
+              - "10.0.0.4"   # pc1-node
         relabel_configs:
           - source_labels: [__address__]
             target_label: __param_target
@@ -176,6 +184,10 @@ data:
             regex: '10\.0\.0\.3'
             target_label: node
             replacement: rp3-node
+          - source_labels: [instance]
+            regex: '10\.0\.0\.4'
+            target_label: node
+            replacement: pc1-node
       
       ## itself
       - job_name: 'prometheus'

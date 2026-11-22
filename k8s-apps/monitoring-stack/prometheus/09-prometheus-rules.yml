@@ -39,42 +39,52 @@ data:
               summary: "Memoria alta en {{ $labels.node }}"
               description: "Memoria al {{ $value | printf \"%.0f\" }}% en {{ $labels.node }}. Riesgo de OOM killer."
 
+          # "/" en todos los nodos + /var/lib/rancher en pc1-node (LV propio: imágenes y PVs local-path)
           - alert: DiscoLleno
-            expr: 100 * (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}) > 85
+            expr: 100 * (1 - node_filesystem_avail_bytes{mountpoint=~"/|/var/lib/rancher",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint=~"/|/var/lib/rancher",fstype!~"tmpfs|overlay"}) > 85
             for: 5m
             labels:
               severity: warning
             annotations:
-              summary: "Disco al {{ $value | printf \"%.0f\" }}% en {{ $labels.node }}"
-              description: "El disco raíz de {{ $labels.node }} supera el 85%. En rp2 revisar grabaciones de Frigate."
+              summary: "Disco {{ $labels.mountpoint }} al {{ $value | printf \"%.0f\" }}% en {{ $labels.node }}"
+              description: "{{ $labels.mountpoint }} de {{ $labels.node }} supera el 85%. En rp2 revisar grabaciones de Frigate."
 
           - alert: DiscoSeLlenaEn24h
             # Tendencia de las últimas 6h proyectada a 24h. Avisa ANTES de que se llene.
-            expr: predict_linear(node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}[6h], 24 * 3600) < 0
+            expr: predict_linear(node_filesystem_avail_bytes{mountpoint=~"/|/var/lib/rancher",fstype!~"tmpfs|overlay"}[6h], 24 * 3600) < 0
             for: 30m
             labels:
               severity: warning
             annotations:
-              summary: "El disco de {{ $labels.node }} se llenará en menos de 24h"
-              description: "Al ritmo de escritura de las últimas 6 horas, el disco raíz de {{ $labels.node }} se queda sin espacio en menos de un día."
+              summary: "{{ $labels.mountpoint }} de {{ $labels.node }} se llenará en menos de 24h"
+              description: "Al ritmo de escritura de las últimas 6 horas, {{ $labels.mountpoint }} de {{ $labels.node }} se queda sin espacio en menos de un día."
 
+          # Temperatura de CPU por plataforma (zona térmica del SoC/paquete, no las ACPI):
+          #   Pi 5   type="cpu-thermal"   → throttling ~80-85 °C
+          #   x86    type="x86_pkg_temp"  → i7-4770 (pc1-node), Tjmax 100 °C
           - alert: TemperaturaAlta
-            expr: node_thermal_zone_temp > 75
+            expr: |
+              node_thermal_zone_temp{type="cpu-thermal"} > 75
+                or
+              node_thermal_zone_temp{type="x86_pkg_temp"} > 85
             for: 5m
             labels:
               severity: warning
             annotations:
               summary: "{{ $labels.node }} a {{ $value | printf \"%.0f\" }} °C"
-              description: "Temperatura sobre 75 °C por 5 minutos. Revisar ventilación/disipador."
+              description: "Temperatura de CPU alta por 5 minutos (umbral: Pi 75 °C, x86 85 °C). Revisar ventilación/disipador."
 
           - alert: TemperaturaCritica
-            expr: node_thermal_zone_temp > 82
+            expr: |
+              node_thermal_zone_temp{type="cpu-thermal"} > 82
+                or
+              node_thermal_zone_temp{type="x86_pkg_temp"} > 95
             for: 2m
             labels:
               severity: critical
             annotations:
               summary: "{{ $labels.node }} a {{ $value | printf \"%.0f\" }} °C — throttling"
-              description: "La Pi 5 está reduciendo frecuencia por temperatura. El rendimiento cae (Frigate puede perder frames)."
+              description: "La CPU está reduciendo frecuencia por temperatura (umbral: Pi 82 °C, x86 95 °C). El rendimiento cae (Frigate puede perder frames)."
 
           - alert: PresionIOAlta
             # % del tiempo con procesos esperando disco. Fue el síntoma de los bloqueos iSCSI (ADR-016).

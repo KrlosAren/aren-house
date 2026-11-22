@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Homelab con 3 Raspberry Pi 5. `rp1-master` actúa como gateway/router/k3s control plane. `rp2-node` y `rp3-node` son workers con SSD local.
+Homelab con 3 Raspberry Pi 5 (arm64) y una PC x86_64. `rp1-master` actúa como gateway/router/k3s control plane. `rp2-node` y `rp3-node` son workers con SSD local. `pc1-node` es un worker x86 (i7-4770, HDD 1 TB, ADR-018) → **cluster multi-arquitectura**.
 
 **Usuario:** Experiencia sólida en Docker, aprendiendo Kubernetes paso a paso. Migra servicios Docker → k3s de forma gradual.
 
@@ -49,7 +49,8 @@ Internet (CGNAT)
       │
  Switch TP-Link (10.0.0.5)
       ├── rp2-node  10.0.0.2  k3s worker, SSD 500GB
-      └── rp3-node  10.0.0.3  k3s worker, SSD 500GB
+      ├── rp3-node  10.0.0.3  k3s worker, SSD 500GB
+      └── pc1-node  10.0.0.4  k3s worker x86_64, HDD 1TB
 
 Tailscale VPN: 100.x.x.x (mesh, bypasses CGNAT)
   rp1-master Tailscale IP: 100.107.98.121
@@ -61,6 +62,7 @@ Tailscale VPN: 100.x.x.x (mesh, bypasses CGNAT)
 | rp1-master | 10.0.0.1 | 2c:cf:67:a9:b8:51 | Gateway, k3s master |
 | rp2-node | 10.0.0.2 | 2c:cf:67:88:9e:f5 | k3s worker |
 | rp3-node | 10.0.0.3 | 2c:cf:67:a9:b9:13 | k3s worker |
+| pc1-node | 10.0.0.4 | 44:8a:5b:5b:0e:4f | k3s worker x86_64 (`enp2s0`) |
 | switch | 10.0.0.5 | ec:75:0c:ff:fc:d6 | TP-Link SG105PE |
 
 **Red de la casa (módem Movistar 192.168.1.0/24, WiFi "casona") — fuera del homelab:**
@@ -212,6 +214,7 @@ Cliente → DNS → *.k8s.homelab.local → 192.168.1.89 (WAN rp1)
 - **local-path** usa `WaitForFirstConsumer` — el PVC permanece Pending hasta que un Pod lo use, esto es normal.
 - Los pods stateful tienen `nodeSelector` explícito — si se mueven de nodo pierden sus datos. Preferir workers (SSD), no rp1.
 - Paths en workers: `/mnt/ssd` (SSD montado), `/mnt/ssd/rancher`, `/mnt/ssd/docker`
+- **pc1-node:** LV `ubuntu-vg/rancher` (600 G, HDD) montado directo en `/var/lib/rancher` → imágenes y PVs local-path no llenan `/`. ~228 G libres en el VG (`lvextend -r`). HDD: bueno para grabaciones, malo para I/O aleatorio (Prometheus sigue en rp2).
 - Si un PV/namespace queda en `Terminating` por finalizers de un driver que ya no existe: `kubectl patch pv <pv> --type merge -p '{"metadata":{"finalizers":null}}'` (solo si el driver fue removido).
 
 | App | Nodo pinado | Tamaño | Estado |
@@ -297,17 +300,17 @@ Frigate --MQTT frigate/reviews--> Mosquitto --> frigate-notify --HTTP + snapshot
 
 ### Monitoring (ns monitoring)
 - Sin Ingress: todo por tailscale serve (8446-8448). Imágenes fijadas: Prometheus v3.13.5, Grafana 13.1.10, Alertmanager v0.34.2, KSM v2.20.0.
-- Targets: apiserver, kubelet, cAdvisor, pods anotados, node-exporter (systemd en los 3 nodos, :9100), blackbox ICMP/SSH, **Frigate** (`/api/metrics`), Prometheus, Alertmanager.
+- Targets: apiserver, kubelet, cAdvisor, pods anotados, node-exporter (systemd en los 4 nodos, :9100), blackbox ICMP/SSH, **Frigate** (`/api/metrics`), Prometheus, Alertmanager.
 - Alertmanager → ntfy self-hosted, topic **`alertas`**, `?template=alertmanager` (plantilla nativa de ntfy). Usuario ntfy `alertmanager` write-only; token en Secret `alertmanager-ntfy` (montado como `credentials_file`). Antes usaba un topic público de ntfy.sh.
 - Grafana secret cifrado con SOPS: `sops -d k8s-apps/monitoring-stack/grafana/secrets/05-grafana-secrets.yml | kubectl apply -f -` (llave age en la ubicación por defecto de sops).
-- **Alertas** (`prometheus/09-prometheus-rules.yml`, 22 reglas en 5 grupos): nodos (caído, CPU, memoria, disco + predicción 24h, temperatura 75/82 °C, PSI I/O y memoria, NTP, reinicio), servicios (systemd caído/failed, probes blackbox), kubernetes (CrashLoop >3 reinicios/15m, pod no listo excl. Succeeded, nodo NotReady, PVC >85%), frigate (cámara sin video, frames saltados, inferencia lenta), monitoreo (target caído).
+- **Alertas** (`prometheus/09-prometheus-rules.yml`, 22 reglas en 5 grupos): nodos (caído, CPU, memoria, disco `/` y `/var/lib/rancher` + predicción 24h, temperatura Pi `cpu-thermal` 75/82 °C · x86 `x86_pkg_temp` 85/95 °C, PSI I/O y memoria, NTP, reinicio), servicios (systemd caído/failed, probes blackbox), kubernetes (CrashLoop >3 reinicios/15m, pod no listo excl. Succeeded, nodo NotReady, PVC >85%), frigate (cámara sin video, frames saltados, inferencia lenta), monitoreo (target caído).
 - **Dead man's switch:** regla `Watchdog` (`vector(1)`, siempre disparada) → Alertmanager la envía **solo** a Healthchecks.io cada 5 min (nunca a ntfy). Si deja de llegar (corte de luz, rp1/rp2 caído, sin internet, Prometheus/Alertmanager rotos), Healthchecks avisa por canal externo. URL de ping (UUID = credencial) en Secret `alertmanager-healthchecks` (no en git), montado junto al token ntfy vía `projected`. **No silenciar ni borrar `Watchdog`.**
 - Ruteo por severidad → prioridad ntfy: `critical` = 5 (repite c/1h), `warning` = 3 (c/4h), `info` = 2 (sin "resolved"). Inhibiciones: NodoSinRespuesta silencia el resto del nodo; TemperaturaCritica silencia TemperaturaAlta.
 - Validar antes de aplicar: `promtool check rules` (en el pod de Prometheus) y `amtool check-config` (en el de Alertmanager). Tras aplicar, esperar sync del ConfigMap y `POST /-/reload` en ambos.
 - Prueba de alerta: `kubectl exec -n monitoring deploy/alertmanager -- wget -qO- --header='Content-Type: application/json' --post-data='[{"labels":{"alertname":"Prueba","severity":"warning"}}]' http://localhost:9093/api/v2/alerts`
 - `spec.clusterIP` es inmutable: para fijarla en un Service existente hay que borrarlo y recrearlo.
 - Dashboards en carpeta "Homelab", montados juntos vía volumen `projected`: `Pods Monitor` (09), **`Frigate`** (10) y **`Nodos`** (11: hardware, PSI, servicios systemd, kernel/SO, red). Frigate y Nodos se **generan** con `grafana/dashboards/gen-*-dashboard.py` — editar el script y regenerar, no el YAML.
-- node-exporter (systemd, no k8s) tiene `--collector.systemd` limitado a los units de `node_exporter_systemd_units` en `playbooks/node-exporter.yml`. Agregar un servicio a vigilar = agregarlo a esa lista. El job de Prometheus pone el label `node` (rp1-master/rp2-node/rp3-node).
+- node-exporter (systemd, no k8s) tiene `--collector.systemd` limitado a los units de `node_exporter_systemd_units` en `playbooks/node-exporter.yml`. Agregar un servicio a vigilar = agregarlo a esa lista. El job de Prometheus pone el label `node` (rp1-master/rp2-node/rp3-node/pc1-node).
 - Scrape de Frigate descarta series `type="Other"` y las labels `cmdline`/`pid` (cambian en cada reinicio → alta cardinalidad).
 - Prometheus recarga config con `wget -qO- --post-data='' http://localhost:9090/-/reload`, pero el ConfigMap tarda ~1 min en llegar al pod: esperar antes de recargar.
 
@@ -379,6 +382,9 @@ Ansible corre desde Mac. Nodos accesibles via ProxyJump por rp1.
 - Imágenes con versión fija (no `latest`), preferir releases con ≥2 semanas
 - Secrets: o cifrados con **SOPS + age** (`.sops.yaml` cifra todo `*secret*.yml`; ej. grafana, n8n) o creados con `kubectl create secret` fuera de git. Nunca en texto plano.
 - Todos los nodos usan usuario `admin` con UID 1000
+- **Multi-arquitectura** (arm64 + amd64): imágenes multi-arch (`docker manifest inspect`) o `nodeSelector: kubernetes.io/arch`. En playbooks, la arquitectura sale de `ansible_facts['architecture']` (nunca `arm64` fijo)
+- `ansible.cfg` tiene `INJECT_FACTS_AS_VARS = False` → usar `ansible_facts['hostname']`, no `ansible_hostname`
+- Agregar un agent k3s: `--limit <nodo>` (el play del server tiene `netfilter-persistent save`); versión fijada a la del server; `k3s_flannel_iface` en inventario si tiene varias interfaces
 - Commits en español
 
 ### Documentación
@@ -489,7 +495,7 @@ aren-house/
 │   └── test-app/
 ├── stacks/                    # Docker Compose (migración en curso)
 └── docs/
-    ├── decisions/             # ADRs 001-017
+    ├── decisions/             # ADRs 001-018
     ├── concepts/
     ├── guides/                # firewall.md, k3s-guide.md, network-troubleshooting.md
     ├── reference/             # IPs, URLs, comandos
@@ -523,6 +529,9 @@ aren-house/
 - [x] Frigate (detección por CPU, grabación solo eventos)
 - [x] Alertas de Frigate → ntfy (Mosquitto + frigate-notify, topic `camara`)
 - [ ] Evaluar acelerador (Hailo-8L AI Kit / Coral) si se agregan cámaras
+- [x] pc1-node (x86, ADR-018): worker k3s, monitoreo y alertas
+- [ ] Evaluar mover Frigate a pc1-node (VAAPI H.264 en HD 4600; OpenVINO solo CPU en Haswell)
+- [ ] Quitar `netfilter-persistent save` del play del server en `k3s.yml` (contradice la regla de UFW)
 - [ ] Router/AP en modo bridge (Archer C6 o Mercusys MR30G) para red IoT en 10.0.0.x → bloquear internet a la cámara con UFW
 - [ ] Loki (logs centralizados)
 - [ ] Cert-Manager (TLS)
@@ -545,3 +554,4 @@ aren-house/
 | 015 | IPs estáticas via netplan sobre DHCP en nodos |
 | 016 | local-path sobre Longhorn (iSCSI causaba bloqueos de kernel en rp3) |
 | 017 | `tailscale serve` en vez de Ingress para servicios sensibles (cámara, ntfy) |
+| 018 | Primer nodo x86_64 (pc1-node) en el cluster arm64 |

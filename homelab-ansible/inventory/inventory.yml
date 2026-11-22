@@ -19,3 +19,9 @@ all:
           ansible_user: admin
           ansible_python_interpreter: /usr/bin/python3
           ansible_ssh_common_args: "-o ProxyJump=admin@192.168.1.89"
+        pc1-node:  # PC x86_64 (i7-4770, HD 4600, 11 GiB, HDD 1 TB)
+          ansible_host: 10.0.0.4
+          ansible_user: admin
+          ansible_python_interpreter: /usr/bin/python3
+          ansible_ssh_common_args: "-o ProxyJump=admin@192.168.1.89"
+          k3s_flannel_iface: enp2s0

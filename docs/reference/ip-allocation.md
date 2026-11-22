@@ -7,8 +7,9 @@ Referencia rápida de todas las IPs y rangos del homelab.
 | IP | Dispositivo | MAC | Rol |
 |----|-------------|-----|-----|
 | 10.0.0.1 | rp1-master | 2c:cf:67:a9:b8:51 | Gateway, k3s master |
-| 10.0.0.2 | rp2-node | 2c:cf:67:88:9e:f5 | k3s worker (netboot) |
-| 10.0.0.3 | rp3-node | 2c:cf:67:a9:b9:13 | k3s worker (netboot) |
+| 10.0.0.2 | rp2-node | 2c:cf:67:88:9e:f5 | k3s worker (SSD) |
+| 10.0.0.3 | rp3-node | 2c:cf:67:a9:b9:13 | k3s worker (SSD) |
+| 10.0.0.4 | pc1-node | 44:8a:5b:5b:0e:4f | k3s worker x86_64 (HDD 1 TB, ADR-018) |
 | 10.0.0.5 | switch | ec:75:0c:ff:fc:d6 | TP-Link SG105PE |
 
 ## Rangos de Red

@@ -1,7 +1,7 @@
 # Genera 11-grafana-dashboard-nodes.yml:
 #   python3 k8s-apps/monitoring-stack/grafana/dashboards/gen-nodes-dashboard.py k8s-apps/monitoring-stack/grafana/11-grafana-dashboard-nodes.yml
 #
-# Dashboard "Nodos": hardware + software de rp1/rp2/rp3 desde node-exporter.
+# Dashboard "Nodos": hardware + software de rp1/rp2/rp3/pc1 desde node-exporter.
 # Requiere el label "node" en el job node-exporter (02-prometheus-config.yml) y el
 # collector systemd (homelab-ansible/playbooks/node-exporter.yml).
 import json, sys
@@ -90,9 +90,9 @@ P += [
     stat("Disco /", f'100 * (1 - node_filesystem_avail_bytes{{mountpoint="/",fstype!~"tmpfs|overlay",{N}}} '
                     f'/ node_filesystem_size_bytes{{mountpoint="/",fstype!~"tmpfs|overlay",{N}}})', 12, 1,
          unit="percent", th=steps(("green", None), ("orange", 75), ("red", 90))),
-    stat("Temperatura", f'node_thermal_zone_temp{{{N}}}', 16, 1, unit="celsius",
+    stat("Temperatura", f'node_thermal_zone_temp{{type=~"cpu-thermal|x86_pkg_temp",{N}}}', 16, 1, unit="celsius",
          th=steps(("green", None), ("orange", 70), ("red", 80)),
-         desc="La Pi 5 empieza a reducir frecuencia (throttling) cerca de 80-85 °C"),
+         desc="CPU (SoC en Pi, paquete en x86). Pi 5: throttling ~80-85 °C. i7-4770 (pc1-node): Tjmax 100 °C"),
     # max by (node): node_load1 trae instance/job/env y la división exige labels idénticos en ambos lados
     stat("Load (1m) / cores", f'max by (node) (node_load1{{{N}}}) / count by (node) (node_cpu_seconds_total{{mode="idle",{N}}})', 20, 1,
          dec=2, th=steps(("green", None), ("orange", 0.8), ("red", 1.5)),
@@ -141,7 +141,7 @@ P += [
     ts("Frecuencia de CPU", [tgt(f'avg by (node) (node_cpu_scaling_frequency_hertz{{{N}}})', "{{node}}")],
        8, 21, w=8, unit="hertz", minv=0,
        desc="Pi 5: máx 2.4 GHz. Si baja con carga alta y temperatura alta = throttling térmico"),
-    ts("Temperatura", [tgt(f'node_thermal_zone_temp{{{N}}}', "{{node}}")], 16, 21, w=8, unit="celsius",
+    ts("Temperatura", [tgt(f'node_thermal_zone_temp{{type=~"cpu-thermal|x86_pkg_temp",{N}}}', "{{node}}")], 16, 21, w=8, unit="celsius",
        th=steps(("green", None), ("orange", 70), ("red", 80))),
     ts("Presión de CPU (PSI)", [tgt(f'rate(node_pressure_cpu_waiting_seconds_total{{{N}}}[5m]) * 100', "{{node}}")],
        0, 29, w=12, unit="percent", minv=0,
@@ -162,7 +162,7 @@ P += [
 
 # ---------------------------------------------------------------- Disco
 P.append(row("Disco", 46))
-FS = f'fstype!~"tmpfs|overlay|squashfs|ramfs|nsfs",mountpoint!~"/run.*|/var/lib/(kubelet|rancher|docker).*",{N}'
+FS = f'fstype!~"tmpfs|overlay|squashfs|ramfs|nsfs",mountpoint!~"/run.*|/var/lib/(kubelet|docker).*|/var/lib/rancher/.+",{N}'
 P += [
     ts("Uso de filesystems", [tgt(f'100 * (1 - node_filesystem_avail_bytes{{{FS}}} / node_filesystem_size_bytes{{{FS}}})',
                                   "{{node}} {{mountpoint}}")],

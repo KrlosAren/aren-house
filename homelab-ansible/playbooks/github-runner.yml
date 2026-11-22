@@ -17,7 +17,9 @@
     runner_version: "2.331.0"
     runner_user: "admin"
     runner_dir: "/home/{{ runner_user }}/actions-runner"
-    runner_labels: "homelab,self-hosted,arm64"
+    # GitHub usa x64/arm64 en los nombres de release
+    runner_arch: "{{ {'aarch64': 'arm64', 'x86_64': 'x64'}[ansible_facts['architecture']] }}"
+    runner_labels: "homelab,self-hosted,{{ runner_arch }}"
     github_repo_url: "https://github.com/KrlosAren/aren-house"
 
   tasks:
@@ -41,7 +43,7 @@
 
     - name: "descargar github actions runner"
       get_url:
-        url: "https://github.com/actions/runner/releases/download/v{{ runner_version }}/actions-runner-linux-arm64-{{ runner_version }}.tar.gz"
+        url: "https://github.com/actions/runner/releases/download/v{{ runner_version }}/actions-runner-linux-{{ runner_arch }}-{{ runner_version }}.tar.gz"
         dest: "/tmp/actions-runner.tar.gz"
         mode: "0644"
       when: not runner_installed.stat.exists

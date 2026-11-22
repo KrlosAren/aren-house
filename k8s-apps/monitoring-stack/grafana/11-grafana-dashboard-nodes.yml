@@ -290,7 +290,7 @@ data:
         {
           "type": "stat",
           "title": "Temperatura",
-          "description": "La Pi 5 empieza a reducir frecuencia (throttling) cerca de 80-85 °C",
+          "description": "CPU (SoC en Pi, paquete en x86). Pi 5: throttling ~80-85 °C. i7-4770 (pc1-node): Tjmax 100 °C",
           "id": 6,
           "datasource": {
             "type": "prometheus",
@@ -308,7 +308,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "node_thermal_zone_temp{node=~\"$node\"}",
+              "expr": "node_thermal_zone_temp{type=~\"cpu-thermal|x86_pkg_temp\",node=~\"$node\"}",
               "legendFormat": "{{node}}",
               "refId": "A",
               "instant": true
@@ -1048,7 +1048,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "node_thermal_zone_temp{node=~\"$node\"}",
+              "expr": "node_thermal_zone_temp{type=~\"cpu-thermal|x86_pkg_temp\",node=~\"$node\"}",
               "legendFormat": "{{node}}",
               "refId": "A"
             }
@@ -1430,7 +1430,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "100 * (1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs\",mountpoint!~\"/run.*|/var/lib/(kubelet|rancher|docker).*\",node=~\"$node\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs\",mountpoint!~\"/run.*|/var/lib/(kubelet|rancher|docker).*\",node=~\"$node\"})",
+              "expr": "100 * (1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs\",mountpoint!~\"/run.*|/var/lib/(kubelet|docker).*|/var/lib/rancher/.+\",node=~\"$node\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs\",mountpoint!~\"/run.*|/var/lib/(kubelet|docker).*|/var/lib/rancher/.+\",node=~\"$node\"})",
               "legendFormat": "{{node}} {{mountpoint}}",
               "refId": "A"
             }

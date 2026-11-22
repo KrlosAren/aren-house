@@ -147,11 +147,27 @@
       set_fact:
         k3s_token: "{{ k3s_token_raw.content | b64decode | trim }}"
 
+    # El agent nunca debe ser más nuevo que el server → instalar la misma versión
+    - name: "PASO 1b: Obtener versión del k3s server"
+      command: k3s --version
+      register: k3s_server_version_raw
+      delegate_to: rp1-master
+      changed_when: false
+      check_mode: false
+
+    - name: "Set k3s_version fact"
+      set_fact:
+        k3s_version: "{{ k3s_server_version_raw.stdout_lines[0].split()[2] }}"
+
+    # cmdline.txt solo existe en Raspberry Pi. En x86 (pc1-node) Ubuntu ya usa
+    # cgroup v2 con el controlador de memoria activo.
     - name: "PASO 2: Verificar si cgroups ya están configurados"
       shell: grep -q "cgroup_memory=1" /boot/firmware/cmdline.txt
       register: cgroup_check_node
       failed_when: false
       changed_when: false
+      check_mode: false
+      when: ansible_facts['architecture'] == 'aarch64'
 
     - name: "PASO 3: Habilitar cgroups de memoria en el kernel"
       lineinfile:
@@ -159,7 +175,9 @@
         backrefs: yes
         regexp: "^(.*)$"
         line: '\1 cgroup_memory=1 cgroup_enable=memory'
-      when: cgroup_check_node.rc != 0
+      when:
+        - ansible_facts['architecture'] == 'aarch64'
+        - cgroup_check_node.rc != 0
       notify: Reboot Node
       register: cgroup_config_node
 
@@ -181,14 +199,33 @@
         - /var/lib/rancher/agent/kubelet.kubeconfig
         - /var/lib/rancher/agent/kube-proxy.kubeconfig
       when: not k3s_agent_installed.stat.exists
-    
-    - name: "PASO 6: Instalar k3s agent"
+
+    # Nodos con varias interfaces (pc1-node: enp2s0 + WiFi) → fijar la de la LAN,
+    # igual que en el server. Por defecto eth0 (Pi). Override: k3s_flannel_iface en inventario.
+    - name: "PASO 5b: Configuración del k3s agent"
+      block:
+        - name: Crear directorio de config de k3s
+          file:
+            path: /etc/rancher/k3s
+            state: directory
+            mode: "0755"
+
+        - name: Crear config.yaml del agent
+          copy:
+            dest: /etc/rancher/k3s/config.yaml
+            content: |
+              flannel-iface: {{ k3s_flannel_iface | default('eth0') }}
+              node-ip: {{ ansible_host }}
+            mode: "0644"
+
+    - name: "PASO 6: Instalar k3s agent ({{ k3s_version }})"
       shell: curl -sfL https://get.k3s.io | sh -s - agent
       args:
         creates: /usr/local/bin/k3s
       environment:
         K3S_URL: "https://{{ k3s_server_ip }}:6443"
         K3S_TOKEN: "{{ k3s_token }}"
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
 
     - name: "PASO 7: Esperar a que el nodo se una al cluster"
       command: kubectl get node {{ inventory_hostname }}

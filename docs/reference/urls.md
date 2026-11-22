@@ -31,6 +31,7 @@ Cliente → DNS → 192.168.1.89 → DNAT → 10.0.0.50 (MetalLB) → Traefik k3
 | `10.0.0.1:9100` | Node Exporter (rp1-master) |
 | `10.0.0.2:9100` | Node Exporter (rp2-node) |
 | `10.0.0.3:9100` | Node Exporter (rp3-node) |
+| `10.0.0.4:9100` | Node Exporter (pc1-node) |
 
 ## Configuración DNS
 
