@@ -274,6 +274,7 @@ Estado real del cluster (nov 2026). Verificar con `kubectl get ns` y `kubectl ge
 ### Frigate
 - v0.18.2, detector **CPU** (Pi 5 sin acelerador): ~5 fps, inferencia ~10 ms, ~0.2 cores en reposo. Con Hailo-8L/Coral cambiar `detectors`.
 - Consume los streams de **nuestro go2rtc** (`go2rtc.cameras.svc:8554`) — la Tapo mantiene una sola conexión. Detecta en `casona_sub` (1280x720), graba `casona` (copia sin recodificar; la Pi 5 no decodifica H.264 por hardware).
+- **Máscaras** (cámara apunta a una TV): motion mask sobre la pantalla y el reloj OSD; object filter mask person/dog/cat sobre la pantalla (filtra por centro inferior del bounding box → personas reales frente a la TV siguen detectándose). Si se mueve la cámara, redibujar en la UI (Settings → Masks/Zones) y **copiar coordenadas al ConfigMap**.
 - Grabación **solo eventos**: continuous/motion = 0 días; alerts (person) 30 días, pre 5s/post 10s; detections (dog, cat) 7 días.
 - `/config` escribible vía `initContainer` que copia el ConfigMap en cada arranque → **cambios hechos en la UI de Frigate se pierden al reiniciar; editar `01-frigate-config.yml`**.
 - `/dev/shm` (256Mi) y `/tmp/cache` (1Gi) son `emptyDir` en memoria (equivalente a `--shm-size`/tmpfs).
