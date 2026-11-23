@@ -220,7 +220,7 @@ Cliente → DNS → *.k8s.homelab.local → 192.168.1.89 (WAN rp1)
 | App | Nodo pinado | Tamaño | Estado |
 |-----|-------------|--------|--------|
 | ntfy | rp3-node | 2Gi | Desplegado |
-| Frigate | rp2-node | 100Gi (solo eventos) | Desplegado |
+| Frigate | pc1-node | 100Gi (solo eventos) | Desplegado (PVC viejo `frigate-data` en rp2 se mantiene para rollback) |
 | Prometheus | rp2-node | 20Gi | Desplegado |
 | Grafana | rp3-node | 5Gi | Desplegado |
 | Alertmanager | rp3-node | 2Gi | Desplegado |
@@ -256,7 +256,7 @@ Estado real del cluster (nov 2026). Verificar con `kubectl get ns` y `kubectl ge
 |-----|-----------|---------|--------|
 | go2rtc (cámara C110) | cameras | — (stateless) | `https://rp1-master.tailb0ca85.ts.net:8443` (tailscale serve) |
 | ntfy | ntfy | local-path (2Gi, rp3) | `https://rp1-master.tailb0ca85.ts.net:8444` (tailscale serve) |
-| Frigate | cameras | local-path (100Gi, rp2) | `https://rp1-master.tailb0ca85.ts.net:8445` (tailscale serve) |
+| Frigate | cameras | local-path (100Gi, pc1-node) | `https://rp1-master.tailb0ca85.ts.net:8445` (tailscale serve) |
 | Prometheus | monitoring | local-path (20Gi, rp2) | `https://rp1-master.tailb0ca85.ts.net:8446` |
 | Grafana | monitoring | local-path (5Gi, rp3) | `https://rp1-master.tailb0ca85.ts.net:8447` (login) |
 | Alertmanager | monitoring | local-path (2Gi, rp3) | `https://rp1-master.tailb0ca85.ts.net:8448` |
@@ -275,8 +275,9 @@ Estado real del cluster (nov 2026). Verificar con `kubectl get ns` y `kubectl ge
 - La imagen usa ENTRYPOINT `tini`: en `args` hay que incluir el binario (`["go2rtc", "-config", ...]`).
 
 ### Frigate
-- v0.18.2, detector **CPU** (Pi 5 sin acelerador): ~5 fps, inferencia ~10 ms, ~0.2 cores en reposo. Con Hailo-8L/Coral cambiar `detectors`.
-- Consume los streams de **nuestro go2rtc** (`go2rtc.cameras.svc:8554`) — la Tapo mantiene una sola conexión. Detecta en `casona_sub` (1280x720), graba `casona` (copia sin recodificar; la Pi 5 no decodifica H.264 por hardware).
+- v0.18.2 en **pc1-node** (ADR-019), detector **OpenVINO sobre CPU** (`ssdlite_mobilenet_v2` de la imagen amd64): inferencia ~15-25 ms en Frigate (en rp2 con TFLite eran ~63 ms). OpenVINO GPU no soporta Haswell. La config `openvino` **no funciona en arm64**: Frigate queda fijo en x86.
+- VAAPI (HD 4600, driver `LIBVA_DRIVER_NAME=i965`) probado y funcional, **no activado**: requiere `privileged` o Intel GPU device plugin y con el stream de 720p ahorra poco (9 % → 6 % de un core).
+- Consume los streams de **nuestro go2rtc** (`go2rtc.cameras.svc:8554`) — la Tapo mantiene una sola conexión. Detecta en `casona_sub` (1280x720), graba `casona` (copia sin recodificar).
 - **Máscaras** (cámara apunta a una TV): motion mask sobre la pantalla y el reloj OSD; object filter mask person/dog/cat sobre la pantalla (filtra por centro inferior del bounding box → personas reales frente a la TV siguen detectándose). Si se mueve la cámara, redibujar en la UI (Settings → Masks/Zones) y **copiar coordenadas al ConfigMap**.
 - Grabación **solo eventos**: continuous/motion = 0 días; alerts (person) 30 días, pre 5s/post 10s; detections (dog, cat) 7 días.
 - `/config` escribible vía `initContainer` que copia el ConfigMap en cada arranque → **cambios hechos en la UI de Frigate se pierden al reiniciar; editar `01-frigate-config.yml`**.
@@ -482,7 +483,7 @@ aren-house/
 ├── k8s-apps/
 │   ├── argocd/                # namespace + ingress (no desplegado)
 │   ├── falco/                 # Helm values (no desplegado)
-│   ├── frigate/               # NVR + detección IA (desplegado, ns cameras, rp2)
+│   ├── frigate/               # NVR + detección IA (desplegado, ns cameras, pc1-node)
 │   ├── go2rtc/                # cámara Tapo C110 (desplegado, ns cameras)
 │   ├── kite/
 │   ├── longhorn/              # restos, obsoleto (ADR-016)
@@ -495,7 +496,7 @@ aren-house/
 │   └── test-app/
 ├── stacks/                    # Docker Compose (migración en curso)
 └── docs/
-    ├── decisions/             # ADRs 001-018
+    ├── decisions/             # ADRs 001-019
     ├── concepts/
     ├── guides/                # firewall.md, k3s-guide.md, network-troubleshooting.md
     ├── reference/             # IPs, URLs, comandos
@@ -530,7 +531,9 @@ aren-house/
 - [x] Alertas de Frigate → ntfy (Mosquitto + frigate-notify, topic `camara`)
 - [ ] Evaluar acelerador (Hailo-8L AI Kit / Coral) si se agregan cámaras
 - [x] pc1-node (x86, ADR-018): worker k3s, monitoreo y alertas
-- [ ] Evaluar mover Frigate a pc1-node (VAAPI H.264 en HD 4600; OpenVINO solo CPU en Haswell)
+- [x] Frigate movido a pc1-node con OpenVINO CPU (ADR-019)
+- [ ] Borrar PVC `frigate-data` (rp2) tras unos días de validación de Frigate en pc1-node
+- [ ] Activar VAAPI en Frigate si se detecta sobre el stream principal o se agregan cámaras
 - [ ] Quitar `netfilter-persistent save` del play del server en `k3s.yml` (contradice la regla de UFW)
 - [ ] Router/AP en modo bridge (Archer C6 o Mercusys MR30G) para red IoT en 10.0.0.x → bloquear internet a la cámara con UFW
 - [ ] Loki (logs centralizados)
@@ -555,3 +558,4 @@ aren-house/
 | 016 | local-path sobre Longhorn (iSCSI causaba bloqueos de kernel en rp3) |
 | 017 | `tailscale serve` en vez de Ingress para servicios sensibles (cámara, ntfy) |
 | 018 | Primer nodo x86_64 (pc1-node) en el cluster arm64 |
+| 019 | Frigate en pc1-node con detector OpenVINO (CPU) |

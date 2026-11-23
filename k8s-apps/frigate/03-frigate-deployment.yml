@@ -17,7 +17,9 @@ spec:
         app: frigate
     spec:
       nodeSelector:
-        kubernetes.io/hostname: rp2-node   # SSD de rp2; el PV local-path vive aquí
+        # pc1-node (x86): detector OpenVINO solo existe en la imagen amd64 (ADR-018).
+        # El PV local-path vive aquí → si se cambia de nodo, copiar los datos.
+        kubernetes.io/hostname: pc1-node
       initContainers:
         # Frigate necesita /config ESCRIBIBLE (migra el config y guarda frigate.db ahí).
         # El ConfigMap es la fuente de verdad: se copia en cada arranque.
@@ -65,15 +67,15 @@ spec:
               cpu: "1"
               memory: 1Gi
             limits:
-              cpu: "3"                # deja 1 core libre en rp2
-              memory: 3Gi
+              cpu: "4"                # 4 de 8 hilos del i7-4770
+              memory: 4Gi
       volumes:
         - name: config-src
           configMap:
             name: frigate-config
         - name: data
           persistentVolumeClaim:
-            claimName: frigate-data
+            claimName: frigate-data-pc1
         - name: cache                 # tmpfs: segmentos antes de validarse (docs Frigate)
           emptyDir:
             medium: Memory

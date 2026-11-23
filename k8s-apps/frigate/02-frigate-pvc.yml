@@ -1,5 +1,23 @@
 # Un solo PVC con dos subPaths: config/ (config.yml + frigate.db) y media/ (grabaciones, snapshots)
 # local-path no impone el tamaño: el límite real lo da la retención en config.yml
+#
+# frigate-data-pc1 → PV en pc1-node (HDD, /var/lib/rancher). Frigate corre aquí desde nov 2026.
+# local-path ata el PV al nodo del primer pod que lo usa (WaitForFirstConsumer).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: frigate-data-pc1
+  namespace: cameras
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 100Gi
+---
+# ⚠️ ROLLBACK: PVC original en rp2-node (SSD). Se mantiene hasta validar Frigate en pc1-node;
+# después borrar con: kubectl delete pvc frigate-data -n cameras (y quitar este bloque).
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

@@ -224,7 +224,7 @@ data:
         {
           "type": "stat",
           "title": "Inferencia",
-          "description": "Tiempo por inferencia del detector CPU. > 100 ms es preocupante",
+          "description": "OpenVINO sobre CPU (pc1-node): normal ~15-25 ms. Alerta > 60 ms",
           "id": 5,
           "datasource": {
             "type": "prometheus",
@@ -499,7 +499,7 @@ data:
         {
           "type": "timeseries",
           "title": "Tiempo de inferencia",
-          "description": "Detector CPU. Con Hailo/Coral bajaría a ~5 ms",
+          "description": "OpenVINO CPU en pc1-node. En la Pi 5 (TFLite) eran ~63 ms",
           "id": 10,
           "datasource": {
             "type": "prometheus",
@@ -554,7 +554,7 @@ data:
         },
         {
           "type": "row",
-          "title": "Recursos (rp2)",
+          "title": "Recursos (pc1-node)",
           "collapsed": false,
           "id": 11,
           "panels": [],
@@ -568,7 +568,7 @@ data:
         {
           "type": "timeseries",
           "title": "CPU por proceso de Frigate",
-          "description": "% de un core. ffmpeg = decodificar casona_sub (la Pi 5 no decodifica H.264 por hardware)",
+          "description": "% de un core. ffmpeg = decodificar casona_sub por CPU (VAAPI de la HD 4600 disponible, no activado)",
           "id": 12,
           "datasource": {
             "type": "prometheus",
@@ -624,7 +624,7 @@ data:
         {
           "type": "timeseries",
           "title": "CPU y memoria del pod",
-          "description": "Límite del pod: 3 cores",
+          "description": "Límite del pod: 4 cores",
           "id": 13,
           "datasource": {
             "type": "prometheus",
@@ -680,7 +680,7 @@ data:
         {
           "type": "timeseries",
           "title": "Memoria del pod",
-          "description": "Límite del pod: 3 GiB",
+          "description": "Límite del pod: 4 GiB",
           "id": 14,
           "datasource": {
             "type": "prometheus",
@@ -735,8 +735,8 @@ data:
         },
         {
           "type": "timeseries",
-          "title": "Temperatura CPU rp2",
-          "description": "La Pi 5 reduce frecuencia (throttling) desde ~80 °C",
+          "title": "Temperatura CPU pc1-node",
+          "description": "i7-4770: Tjmax 100 °C. Alertas en 85/95 °C",
           "id": 15,
           "datasource": {
             "type": "prometheus",
@@ -754,8 +754,8 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "node_thermal_zone_temp{instance=\"10.0.0.2:9100\"}",
-              "legendFormat": "rp2",
+              "expr": "node_thermal_zone_temp{node=\"pc1-node\",type=\"x86_pkg_temp\"}",
+              "legendFormat": "pc1-node",
               "refId": "A"
             }
           ],
@@ -924,8 +924,8 @@ data:
         },
         {
           "type": "gauge",
-          "title": "Disco rp2 (grabaciones)",
-          "description": "Disco compartido de rp2 (local-path en la raíz del SSD)",
+          "title": "Disco pc1-node (grabaciones)",
+          "description": "LV /var/lib/rancher de pc1-node (HDD, 600 G)",
           "id": 19,
           "datasource": {
             "type": "prometheus",

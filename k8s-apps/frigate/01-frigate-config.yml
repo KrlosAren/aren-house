@@ -10,12 +10,21 @@ data:
       host: mosquitto.cameras.svc.cluster.local
       port: 1883
 
-    # Detector por CPU (Pi 5 sin acelerador). Suficiente para 1 cámara a 5 fps.
-    # Con Hailo-8L o Coral: cambiar type y quitar num_threads.
+    # Detector OpenVINO sobre CPU (pc1-node, i7-4770 con AVX2): ~8 ms por inferencia
+    # vs ~63 ms del detector "cpu" (TFLite) en la Pi 5. OpenVINO GPU no soporta Haswell.
+    # Modelo incluido en la imagen amd64 de Frigate (no existe en arm64 → Frigate fijo en pc1-node).
     detectors:
-      cpu1:
-        type: cpu
-        num_threads: 3
+      ov:
+        type: openvino
+        device: CPU
+
+    model:
+      width: 300
+      height: 300
+      input_tensor: nhwc
+      input_pixel_format: bgr
+      path: /openvino-model/ssdlite_mobilenet_v2.xml
+      labelmap_path: /openvino-model/coco_91cl_bkgr.txt
 
     # El go2rtc interno de Frigate re-sirve los streams de NUESTRO go2rtc (ns cameras).
     # La Tapo sigue teniendo una sola conexión RTSP: la de go2rtc.

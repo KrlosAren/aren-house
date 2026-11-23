@@ -47,7 +47,7 @@ data:
               severity: warning
             annotations:
               summary: "Disco {{ $labels.mountpoint }} al {{ $value | printf \"%.0f\" }}% en {{ $labels.node }}"
-              description: "{{ $labels.mountpoint }} de {{ $labels.node }} supera el 85%. En rp2 revisar grabaciones de Frigate."
+              description: "{{ $labels.mountpoint }} de {{ $labels.node }} supera el 85%. En pc1-node (/var/lib/rancher) revisar grabaciones de Frigate."
 
           - alert: DiscoSeLlenaEn24h
             # Tendencia de las últimas 6h proyectada a 24h. Avisa ANTES de que se llene.
@@ -215,16 +215,16 @@ data:
               severity: warning
             annotations:
               summary: "Frigate pierde frames en {{ $labels.camera_name }}"
-              description: "Salta {{ $value | printf \"%.1f\" }} fps: la CPU de rp2 no da abasto (¿temperatura? ¿acelerador?)."
+              description: "Salta {{ $value | printf \"%.1f\" }} fps: la CPU de pc1-node no da abasto (¿temperatura? ¿otros pods?)."
 
           - alert: InferenciaLenta
-            expr: frigate_detector_inference_speed_seconds > 0.1
+            expr: frigate_detector_inference_speed_seconds > 0.06
             for: 15m
             labels:
               severity: warning
             annotations:
               summary: "Inferencia lenta en Frigate ({{ $value | humanizeDuration }})"
-              description: "El detector {{ $labels.name }} tarda más de 100 ms por inferencia (normal: ~10 ms)."
+              description: "El detector {{ $labels.name }} tarda más de 60 ms por inferencia (normal con OpenVINO en pc1-node: ~15-25 ms)."
 
       # ------------------------------------------------------------------ El propio monitoreo
       - name: monitoreo

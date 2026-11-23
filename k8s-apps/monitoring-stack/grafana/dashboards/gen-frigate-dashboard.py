@@ -55,7 +55,7 @@ P += [
  stat("Frames saltados", f'frigate_skipped_fps{{{CAM}}}', 8, 1, desc="> 0 = la CPU no da abasto",
       thresholds=[{"color": "green", "value": None}, {"color": "orange", "value": 0.1}, {"color": "red", "value": 1}]),
  stat("Inferencia", 'max(frigate_detector_inference_speed_seconds) * 1000', 12, 1, unit="ms",
-      desc="Tiempo por inferencia del detector CPU. > 100 ms es preocupante",
+      desc="OpenVINO sobre CPU (pc1-node): normal ~15-25 ms. Alerta > 60 ms",
       thresholds=[{"color": "green", "value": None}, {"color": "orange", "value": 50}, {"color": "red", "value": 100}]),
  stat("Personas (24h)", f'sum(increase(frigate_camera_events_total{{camera="$camera",label="person"}}[24h]))', 16, 1, dec=0,
       thresholds=[{"color": "blue", "value": None}]),
@@ -70,22 +70,22 @@ P += [
             tgt(f'frigate_detection_fps{{{CAM}}}', "detección", "C"),
             tgt(f'frigate_skipped_fps{{{CAM}}}', "saltados", "D")], 0, 6, minv=0),
  ts("Tiempo de inferencia", [tgt('frigate_detector_inference_speed_seconds * 1000', "{{name}}")], 12, 6, unit="ms", minv=0,
-    desc="Detector CPU. Con Hailo/Coral bajaría a ~5 ms"),
+    desc="OpenVINO CPU en pc1-node. En la Pi 5 (TFLite) eran ~63 ms"),
 ]
 # --- Recursos
-P.append(row("Recursos (rp2)", 14))
+P.append(row("Recursos (pc1-node)", 14))
 P += [
  ts("CPU por proceso de Frigate", [tgt('frigate_cpu_usage_percent{type=~"Camera|detectors|go2rtc|recording|review_segment|embeddings"}', "{{name}} · {{process}}")],
     0, 15, unit="percent", stack=True, minv=0,
-    desc="% de un core. ffmpeg = decodificar casona_sub (la Pi 5 no decodifica H.264 por hardware)"),
+    desc="% de un core. ffmpeg = decodificar casona_sub por CPU (VAAPI de la HD 4600 disponible, no activado)"),
  ts("CPU y memoria del pod", [
       tgt('sum(rate(container_cpu_usage_seconds_total{namespace="cameras",container="frigate"}[5m]))', "CPU (cores)", "A")],
-    12, 15, w=6, unit="none", minv=0, desc="Límite del pod: 3 cores"),
+    12, 15, w=6, unit="none", minv=0, desc="Límite del pod: 4 cores"),
  ts("Memoria del pod", [
       tgt('sum(container_memory_working_set_bytes{namespace="cameras",container="frigate"})', "working set", "A")],
-    18, 15, w=6, unit="bytes", minv=0, desc="Límite del pod: 3 GiB"),
- ts("Temperatura CPU rp2", [tgt('node_thermal_zone_temp{instance="10.0.0.2:9100"}', "rp2")], 0, 23, w=12, h=7,
-    unit="celsius", desc="La Pi 5 reduce frecuencia (throttling) desde ~80 °C"),
+    18, 15, w=6, unit="bytes", minv=0, desc="Límite del pod: 4 GiB"),
+ ts("Temperatura CPU pc1-node", [tgt('node_thermal_zone_temp{node="pc1-node",type="x86_pkg_temp"}', "pc1-node")], 0, 23, w=12, h=7,
+    unit="celsius", desc="i7-4770: Tjmax 100 °C. Alertas en 85/95 °C"),
  ts("Red del pod (go2rtc → Frigate)", [
       tgt('sum(rate(container_network_receive_bytes_total{namespace="cameras",pod=~"frigate-.*"}[5m]))', "recibido", "A"),
       tgt('sum(rate(container_network_transmit_bytes_total{namespace="cameras",pod=~"frigate-.*"}[5m]))', "enviado", "B")],
@@ -96,8 +96,8 @@ P.append(row("Eventos y almacenamiento", 30))
 P += [
  ts("Eventos por hora", [tgt(f'sum by (label) (increase(frigate_camera_events_total{{camera="$camera"}}[1h]))', "{{label}}")],
     0, 31, unit="none", bars=True, stack=True, minv=0, h=8),
- gauge("Disco rp2 (grabaciones)", '100 * frigate_storage_used_bytes{storage="/media/frigate/recordings"} / frigate_storage_total_bytes{storage="/media/frigate/recordings"}',
-       12, 31, desc="Disco compartido de rp2 (local-path en la raíz del SSD)", warn=75, crit=90),
+ gauge("Disco pc1-node (grabaciones)", '100 * frigate_storage_used_bytes{storage="/media/frigate/recordings"} / frigate_storage_total_bytes{storage="/media/frigate/recordings"}',
+       12, 31, desc="LV /var/lib/rancher de pc1-node (HDD, 600 G)", warn=75, crit=90),
  gauge("/dev/shm", '100 * frigate_storage_used_bytes{storage="/dev/shm"} / frigate_storage_total_bytes{storage="/dev/shm"}',
        18, 31, w=3, desc="emptyDir 256Mi. Si se llena → 'Bus error'", warn=80, crit=95),
  gauge("/tmp/cache", '100 * frigate_storage_used_bytes{storage="/tmp/cache"} / frigate_storage_total_bytes{storage="/tmp/cache"}',

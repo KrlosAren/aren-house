@@ -44,3 +44,4 @@ Cada ADR sigue esta estructura:
 | 012 | [K3s sobre Kubernetes Vanilla](012-k3s-over-k8s.md) | Aceptado | 2026-01-23 |
 | 017 | [tailscale serve en vez de Ingress para servicios sensibles](017-tailscale-serve-para-servicios-sensibles.md) | Aceptado | 2026-11-21 |
 | 018 | [Primer nodo x86_64 (pc1-node) en el cluster arm64](018-nodo-x86-pc1.md) | Aceptado | 2026-11-22 |
+| 019 | [Frigate en pc1-node con detector OpenVINO](019-frigate-en-pc1-openvino.md) | Aceptado | 2026-11-23 |
