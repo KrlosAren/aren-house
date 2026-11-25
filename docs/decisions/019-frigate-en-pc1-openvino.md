@@ -45,3 +45,17 @@ Mientras exista el PVC `frigate-data` (rp2):
 1. `nodeSelector: rp2-node`, `claimName: frigate-data`, límites 3 / 3 GiB
 2. Detector `cpu` con `num_threads: 3` y sin bloque `model:`
 3. Los eventos ocurridos en pc1-node no estarán en la DB de rp2 (copiar de vuelta si importan)
+
+## Adenda (2026-11-23): perfil AppArmor propio `k8s-frigate`
+
+**Problema:** horas después de migrar, la Tapo se cortó (`i/o timeout` en go2rtc) y Frigate quedó "offline" de forma permanente: al intentar matar su ffmpeg colgado, `os.kill` devolvía `PermissionError` (aun siendo root).
+
+**Causa:** en Ubuntu 26.04 (AppArmor 5) los procesos del contenedor quedan con la etiqueta apilada `cri-containerd.apparmor.d//&unconfined`. El perfil por defecto de containerd solo permite `signal` y `ptrace` hacia `peer=cri-containerd.apparmor.d` → el contenedor no puede enviarse señales a sí mismo. Evidencia en `journalctl -k`: `operation="signal" ... denied_mask="send"` (go2rtc, tempio) y ~3000 `operation="ptrace"` (psutil de Frigate leyendo /proc de ffmpeg); el SIGTERM de Frigate quedó entre los ~300 mensajes suprimidos por rate limit. En las Pi (Ubuntu 25.10) no ocurre.
+
+**Opciones evaluadas:** `appArmorProfile: Unconfined` (rápido, pero quita el confinamiento) · **perfil propio** · volver Frigate a rp2.
+
+**Decisión:** perfil `k8s-frigate` = copia del de containerd que además acepta `peer="k8s-frigate//&unconfined"` en las reglas `signal` y `ptrace`. Se instala con `homelab-ansible/playbooks/apparmor.yml` (en `/etc/apparmor.d/`, se recarga en cada boot) y el deployment lo usa con `appArmorProfile: {type: Localhost, localhostProfile: k8s-frigate}`.
+
+**Verificado:** procesos con `k8s-frigate//&unconfined (enforce)`; `os.kill(SIGTERM)` al ffmpeg de detección funciona y Frigate lo relanza solo en ~10 s; 0 rechazos AppArmor.
+
+**Consecuencia:** si el pod se programa en un nodo sin el perfil cargado → `CreateContainerError`. Frigate está fijado a pc1-node; si se mueve, correr `apparmor.yml` en el nodo nuevo. Otros pods en pc1-node (p. ej. el speaker de MetalLB, también `//&unconfined`) podrían tener el mismo problema si necesitan señales internas.

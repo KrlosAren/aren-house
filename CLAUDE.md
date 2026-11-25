@@ -280,6 +280,7 @@ Estado real del cluster (nov 2026). Verificar con `kubectl get ns` y `kubectl ge
 
 ### Frigate
 - v0.18.2 en **pc1-node** (ADR-019), detector **OpenVINO sobre CPU** (`ssdlite_mobilenet_v2` de la imagen amd64): inferencia ~15-25 ms en Frigate (en rp2 con TFLite eran ~63 ms). OpenVINO GPU no soporta Haswell. La config `openvino` **no funciona en arm64**: Frigate queda fijo en x86.
+- **AppArmor propio `k8s-frigate`** (`playbooks/apparmor.yml`, ADR-019 adenda): en Ubuntu 26.04 el perfil de containerd impide señales entre procesos del contenedor (etiqueta apilada `//&unconfined`) → Frigate no podía matar su ffmpeg colgado y la cámara quedaba "offline" tras un corte. Sin el perfil cargado en el nodo, el pod no arranca.
 - VAAPI (HD 4600, driver `LIBVA_DRIVER_NAME=i965`) probado y funcional, **no activado**: requiere `privileged` o Intel GPU device plugin y con el stream de 720p ahorra poco (9 % → 6 % de un core).
 - Consume los streams de **nuestro go2rtc** (`go2rtc.cameras.svc:8554`) — la Tapo mantiene una sola conexión. Detecta en `casona_sub` (1280x720), graba `casona` (copia sin recodificar).
 - **Máscaras** (cámara apunta a una TV): motion mask sobre la pantalla y el reloj OSD; object filter mask person/dog/cat sobre la pantalla (filtra por centro inferior del bounding box → personas reales frente a la TV siguen detectándose). Si se mueve la cámara, redibujar en la UI (Settings → Masks/Zones) y **copiar coordenadas al ConfigMap**.
@@ -385,6 +386,7 @@ Ansible corre desde Mac. Nodos accesibles via ProxyJump por rp1.
 | `registry.yml` | Registry privado + registries.yaml en nodos | gateway |
 | `github-runner.yml` | Self-hosted CI/CD runner | gateway |
 | `disable-iscsi.yml` | Enmascara iSCSI (resto de Longhorn); aborta si hay sesiones activas | all |
+| `apparmor.yml` | Perfiles AppArmor para contenedores (`k8s-frigate`) | pc1-node |
 | `update-nodes.yml` | apt upgrade | nodes |
 | `reboot-nodes.yml` | Reinicio controlado | all |
 

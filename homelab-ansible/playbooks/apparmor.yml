@@ -1,0 +1,46 @@
+# Playbook: apparmor.yml
+# Propósito: instalar perfiles AppArmor propios para contenedores k8s
+#            (referenciados con securityContext.appArmorProfile: {type: Localhost, localhostProfile: <nombre>})
+#
+# Uso:
+#   ansible-playbook playbooks/apparmor.yml --check
+#   ansible-playbook playbooks/apparmor.yml
+#
+# ⚠️ Si el perfil no está cargado en el nodo, el pod NO arranca (CreateContainerError).
+#    Instalar el perfil en todo nodo donde pueda programarse el pod que lo usa.
+#
+- name: perfiles AppArmor para contenedores
+  hosts: pc1-node          # Frigate está fijado a pc1-node (ADR-019)
+  become: yes
+
+  vars:
+    apparmor_profiles:
+      - k8s-frigate        # Frigate: perfil de containerd + etiqueta apilada (Ubuntu 26.04)
+
+  tasks:
+    - name: copiar perfiles a /etc/apparmor.d (se recargan solos en cada boot)
+      copy:
+        src: "files/apparmor/{{ item }}"
+        dest: "/etc/apparmor.d/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: "{{ apparmor_profiles }}"
+      register: apparmor_copy
+
+    - name: cargar/recargar perfil en el kernel
+      command: "apparmor_parser -r -W /etc/apparmor.d/{{ item.item }}"
+      loop: "{{ apparmor_copy.results }}"
+      when: item.changed
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: verificar que los perfiles están cargados
+      shell: "grep -E '^({{ apparmor_profiles | join('|') }}) ' /sys/kernel/security/apparmor/profiles"
+      register: loaded
+      changed_when: false
+      check_mode: false
+
+    - name: perfiles cargados
+      debug:
+        msg: "{{ loaded.stdout_lines }}"

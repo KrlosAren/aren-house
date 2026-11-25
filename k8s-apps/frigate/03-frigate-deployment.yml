@@ -36,6 +36,13 @@ spec:
       containers:
         - name: frigate
           image: ghcr.io/blakeblackshear/frigate:0.18.2
+          # Perfil AppArmor propio (homelab-ansible/playbooks/apparmor.yml): el de containerd en
+          # Ubuntu 26.04 impide que Frigate mate su ffmpeg colgado → cámara "offline" para siempre.
+          # ⚠️ Si el nodo no tiene el perfil cargado, el pod no arranca (CreateContainerError).
+          securityContext:
+            appArmorProfile:
+              type: Localhost
+              localhostProfile: k8s-frigate
           env:
             - name: TZ
               value: America/Santiago
