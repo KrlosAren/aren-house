@@ -146,7 +146,8 @@ data:
 
           - alert: ProbeFallido
             # Blackbox: ping y banner SSH a cada nodo (vista "desde fuera" del nodo)
-            expr: probe_success == 0
+            # Excluye la cámara (WiFi, cortes cortos frecuentes): ya la cubre CamaraSinVideo
+            expr: probe_success{job!="blackbox-icmp-camara"} == 0
             for: 2m
             labels:
               severity: critical

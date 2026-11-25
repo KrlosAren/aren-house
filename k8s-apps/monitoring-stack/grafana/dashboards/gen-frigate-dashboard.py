@@ -91,17 +91,41 @@ P += [
       tgt('sum(rate(container_network_transmit_bytes_total{namespace="cameras",pod=~"frigate-.*"}[5m]))', "enviado", "B")],
     12, 23, w=12, h=7, unit="Bps", minv=0, desc="cAdvisor. Recibido ≈ casona (3MP, grabación) + casona_sub (720p, detección)"),
 ]
+# --- Red de la cámara (ping blackbox desde rp1, job blackbox-icmp-camara, cada 10s)
+PING = f'job="blackbox-icmp-camara",{CAM}'
+P.append(row("Red de la cámara (WiFi)", 30))
+corr = ts("Stream vs ping", [
+      tgt(f'frigate_camera_fps{{{CAM}}}', "FPS cámara", "A"),
+      tgt(f'100 * (1 - avg_over_time(probe_success{{{PING}}}[1m]))', "pérdida ping %", "B")],
+    0, 31, w=24, h=8, minv=0,
+    desc="Si el FPS cae a 0 junto con un pico de pérdida → la cámara pierde el WiFi. "
+         "Si el FPS cae pero el ping sigue OK → falla el RTSP de la Tapo, no la red.")
+corr["fieldConfig"]["overrides"] = [{
+    "matcher": {"id": "byName", "options": "pérdida ping %"},
+    "properties": [{"id": "custom.axisPlacement", "value": "right"}, {"id": "unit", "value": "percent"},
+                   {"id": "min", "value": 0}, {"id": "max", "value": 100},
+                   {"id": "custom.drawStyle", "value": "bars"}, {"id": "custom.fillOpacity", "value": 50},
+                   {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]}]
+P += [
+ corr,
+ ts("Pérdida de paquetes", [tgt(f'100 * (1 - avg_over_time(probe_success{{{PING}}}[1m]))', "pérdida (1m)")],
+    0, 39, w=12, h=7, unit="percent", minv=0, maxv=100,
+    desc="1 paquete ICMP cada 10s → ventana de 1m = 6 muestras"),
+ ts("Latencia (RTT)", [tgt(f'probe_icmp_duration_seconds{{{PING},phase="rtt"}} * 1000', "RTT")],
+    12, 39, w=12, h=7, unit="ms", minv=0,
+    desc="Normal por WiFi 2.4 GHz: 2-10 ms. Picos altos sostenidos = interferencia o señal débil"),
+]
 # --- Eventos y storage
-P.append(row("Eventos y almacenamiento", 30))
+P.append(row("Eventos y almacenamiento", 46))
 P += [
  ts("Eventos por hora", [tgt(f'sum by (label) (increase(frigate_camera_events_total{{camera="$camera"}}[1h]))', "{{label}}")],
-    0, 31, unit="none", bars=True, stack=True, minv=0, h=8),
+    0, 47, unit="none", bars=True, stack=True, minv=0, h=8),
  gauge("Disco pc1-node (grabaciones)", '100 * frigate_storage_used_bytes{storage="/media/frigate/recordings"} / frigate_storage_total_bytes{storage="/media/frigate/recordings"}',
-       12, 31, desc="LV /var/lib/rancher de pc1-node (HDD, 600 G)", warn=75, crit=90),
+       12, 47, desc="LV /var/lib/rancher de pc1-node (HDD, 600 G)", warn=75, crit=90),
  gauge("/dev/shm", '100 * frigate_storage_used_bytes{storage="/dev/shm"} / frigate_storage_total_bytes{storage="/dev/shm"}',
-       18, 31, w=3, desc="emptyDir 256Mi. Si se llena → 'Bus error'", warn=80, crit=95),
+       18, 47, w=3, desc="emptyDir 256Mi. Si se llena → 'Bus error'", warn=80, crit=95),
  gauge("/tmp/cache", '100 * frigate_storage_used_bytes{storage="/tmp/cache"} / frigate_storage_total_bytes{storage="/tmp/cache"}',
-       21, 31, w=3, desc="emptyDir 1Gi en RAM (segmentos antes de validarse)", warn=80, crit=95),
+       21, 47, w=3, desc="emptyDir 1Gi en RAM (segmentos antes de validarse)", warn=80, crit=95),
 ]
 dash = {
  "annotations": {"list": []}, "editable": True, "graphTooltip": 1, "links": [

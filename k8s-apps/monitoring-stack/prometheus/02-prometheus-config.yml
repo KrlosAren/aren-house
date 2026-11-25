@@ -188,7 +188,29 @@ data:
             regex: '10\.0\.0\.4'
             target_label: node
             replacement: pc1-node
-      
+
+      # Blackbox — ICMP ping a la cámara Tapo C110 (WiFi 2.4 GHz "casona")
+      # Diagnóstico de cortes de stream (go2rtc: "i/o timeout"): ¿coinciden con pérdida de paquetes?
+      # Job aparte para excluirlo de ProbeFallido (la cámara ya tiene CamaraSinVideo).
+      # Cada 10s: los cortes duran 1-3 min, con 30s se verían apenas 2-6 muestras.
+      - job_name: 'blackbox-icmp-camara'
+        scrape_interval: 10s
+        scrape_timeout: 5s
+        metrics_path: /probe
+        params:
+          module: [icmp_ping]
+        static_configs:
+          - targets: ["192.168.1.162"]
+            labels:
+              camera_name: casona
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - source_labels: [__param_target]
+            target_label: instance
+          - target_label: __address__
+            replacement: blackbox-exporter.monitoring.svc.cluster.local:9115
+
       ## itself
       - job_name: 'prometheus'
         static_configs:

@@ -301,7 +301,7 @@ Frigate --MQTT frigate/reviews--> Mosquitto --> frigate-notify --HTTP + snapshot
 
 ### Monitoring (ns monitoring)
 - Sin Ingress: todo por tailscale serve (8446-8448). Imágenes fijadas: Prometheus v3.13.5, Grafana 13.1.10, Alertmanager v0.34.2, KSM v2.20.0.
-- Targets: apiserver, kubelet, cAdvisor, pods anotados, node-exporter (systemd en los 4 nodos, :9100), blackbox ICMP/SSH, **Frigate** (`/api/metrics`), Prometheus, Alertmanager.
+- Targets: apiserver, kubelet, cAdvisor, pods anotados, node-exporter (systemd en los 4 nodos, :9100), blackbox ICMP/SSH, ping a la cámara (job `blackbox-icmp-camara`, cada 10 s, excluido de `ProbeFallido`, para diagnosticar los cortes de WiFi), **Frigate** (`/api/metrics`), Prometheus, Alertmanager.
 - Alertmanager → ntfy self-hosted, topic **`alertas`**, `?template=alertmanager` (plantilla nativa de ntfy). Usuario ntfy `alertmanager` write-only; token en Secret `alertmanager-ntfy` (montado como `credentials_file`). Antes usaba un topic público de ntfy.sh.
 - Grafana secret cifrado con SOPS: `sops -d k8s-apps/monitoring-stack/grafana/secrets/05-grafana-secrets.yml | kubectl apply -f -` (llave age en la ubicación por defecto de sops).
 - **Alertas** (`prometheus/09-prometheus-rules.yml`, 22 reglas en 5 grupos): nodos (caído, CPU, memoria, disco `/` y `/var/lib/rancher` + predicción 24h, temperatura Pi `cpu-thermal` 75/82 °C · x86 `x86_pkg_temp` 85/95 °C, PSI I/O y memoria, NTP, reinicio), servicios (systemd caído/failed, probes blackbox), kubernetes (CrashLoop >3 reinicios/15m, pod no listo excl. Succeeded, nodo NotReady, PVC >85%), frigate (cámara sin video, frames saltados, inferencia lenta), monitoreo (target caído).
