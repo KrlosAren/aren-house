@@ -129,7 +129,7 @@ P += [
 ]
 dash = {
  "annotations": {"list": []}, "editable": True, "graphTooltip": 1, "links": [
-   {"title": "Abrir Frigate", "type": "link", "url": "https://rp1-master.tailb0ca85.ts.net:8445", "targetBlank": True}],
+   {"title": "Abrir Frigate", "type": "link", "url": "https://frigate.tailb0ca85.ts.net", "targetBlank": True}],
  "panels": P, "refresh": "30s", "schemaVersion": 39, "tags": ["frigate", "camaras"],
  "templating": {"list": [
    {"current": {}, "hide": 0, "includeAll": False, "label": "Datasource", "name": "datasource",

@@ -16,7 +16,7 @@ data:
         {
           "title": "Abrir Frigate",
           "type": "link",
-          "url": "https://rp1-master.tailb0ca85.ts.net:8445",
+          "url": "https://frigate.tailb0ca85.ts.net",
           "targetBlank": true
         }
       ],

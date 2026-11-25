@@ -14,24 +14,22 @@
   vars:
     tailscale_advertise_routes:
       - 10.0.0.0/24        # LAN del cluster: nodos, MetalLB (10.0.0.50-60)
-    tailscale_serve:
-      - name: go2rtc            # cámara Tapo C110 → https://rp1-master.<tailnet>.ts.net:8443
-        port: 8443
+    # --- Tailscale Services: un nombre por servicio → https://<name>.<tailnet>.ts.net (ADR-017, actualización) ---
+    # Requisitos (admin de Tailscale): rp1 con tag:homelab; servicio definido en Services (tcp:443);
+    # en la política: grant a svc:<name> + autoApprovers.services."svc:<name>": ["tag:homelab"].
+    # El `name` DEBE coincidir exactamente con el definido en la consola (ej. "camera", no "camara").
+    tailscale_services:
+      - name: camera            # go2rtc (cámara Tapo C110)
         target: http://10.43.92.177:1984   # Service go2rtc (ns cameras), clusterIP fija
-      - name: ntfy              # notificaciones push → https://rp1-master.<tailnet>.ts.net:8444
-        port: 8444
-        target: http://10.43.200.10:80     # Service ntfy (ns ntfy), clusterIP fija
-      - name: frigate           # NVR + detección IA → https://rp1-master.<tailnet>.ts.net:8445
-        port: 8445
-        target: http://10.43.200.11:5000   # Service frigate (ns cameras), clusterIP fija
+      - name: ntfy
+        target: http://10.43.200.10:80     # Service ntfy (ns ntfy)
+      - name: frigate
+        target: http://10.43.200.11:5000   # Service frigate (ns cameras)
       - name: prometheus
-        port: 8446
         target: http://10.43.200.12:9090   # Service prometheus (ns monitoring)
       - name: grafana           # tiene login propio
-        port: 8447
         target: http://10.43.200.13:3000   # Service grafana (ns monitoring)
       - name: alertmanager
-        port: 8448
         target: http://10.43.200.14:9093   # Service alertmanager (ns monitoring)
 
   tasks:
@@ -74,7 +72,7 @@
       when: (ts_prefs.stdout | from_json).AdvertiseRoutes | default([], true) | sort != tailscale_advertise_routes | sort
       tags: routes
 
-    # --- tailscale serve: publica servicios k8s SOLO dentro del tailnet (ADR-017) ---
+    # --- Tailscale Services: publica servicios k8s SOLO dentro del tailnet (ADR-017) ---
     # Requiere "HTTPS Certificates" habilitado en login.tailscale.com/admin/dns
     # El destino es una clusterIP fija (rp1 no resuelve DNS del cluster).
     - name: Leer configuración actual de tailscale serve
@@ -85,11 +83,15 @@
       check_mode: false   # solo lectura: corre también en --check
       tags: serve
 
-    - name: Publicar servicios via tailscale serve
-      command: "tailscale serve --bg --https={{ item.port }} {{ item.target }}"
-      loop: "{{ tailscale_serve }}"
-      when: (':' ~ item.port) not in ts_serve.stdout
+    - name: Publicar Tailscale Services (un nombre por servicio, puerto 443)
+      command: "tailscale serve --service=svc:{{ item.name }} --https=443 {{ item.target }}"
+      loop: "{{ tailscale_services }}"
+      loop_control:
+        label: "svc:{{ item.name }}"
+      when: ('svc:' ~ item.name) not in ((ts_serve.stdout | from_json).Services | default({}, true))
       tags: serve
+
+
 
     - name: Verificar estado de Tailscale
       command: tailscale status

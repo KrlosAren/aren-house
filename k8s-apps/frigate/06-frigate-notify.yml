@@ -13,7 +13,7 @@ data:
       mode: reviews                 # notifica alerts de Frigate (person); no detections
     frigate:
       server: http://frigate.cameras.svc.cluster.local:5000
-      public_url: https://rp1-master.tailb0ca85.ts.net:8445   # links en la notificación (via Tailscale)
+      public_url: https://frigate.tailb0ca85.ts.net   # links en la notificación (via Tailscale)
       mqtt:
         enabled: true
         server: mosquitto.cameras.svc.cluster.local

@@ -5,8 +5,8 @@ metadata:
   namespace: ntfy
 data:
   server.yml: |
-    # Acceso solo via Tailscale (tailscale serve en rp1, puerto 8444) — sin Ingress
-    base-url: "https://rp1-master.tailb0ca85.ts.net:8444"
+    # Acceso solo via Tailscale (Tailscale Service svc:ntfy en rp1) — sin Ingress
+    base-url: "https://ntfy.tailb0ca85.ts.net"
     behind-proxy: true
 
     cache-file: /var/cache/ntfy/cache.db

@@ -176,30 +176,34 @@ Cliente → DNS → *.k8s.homelab.local → 192.168.1.89 (WAN rp1)
 
 ### Dos formas de exponer un servicio
 
-| | Ingress (Traefik) | `tailscale serve` en rp1 (ADR-017) |
+| | Ingress (Traefik) | **Tailscale Services** en rp1 (ADR-017) |
 |---|---|---|
-| URL | `http://miapp.k8s.homelab.local` | `https://rp1-master.tailb0ca85.ts.net:<puerto>` |
+| URL | `http://miapp.k8s.homelab.local` | `https://<nombre>.tailb0ca85.ts.net` (sin puerto) |
 | Quién accede | Cualquiera en "casona" | Solo dispositivos del tailnet |
 | Desde fuera de casa | ❌ | ✅ |
-| TLS | ❌ (Cert-Manager pendiente) | ✅ Let's Encrypt automático |
+| TLS | ❌ (Cert-Manager pendiente) | ✅ Let's Encrypt automático, un certificado por servicio |
 | Usar para | Apps no sensibles o con login propio | Apps sensibles / sin auth (cámara, notificaciones) |
 
 **Ingress:** `Service` (ClusterIP) + `Ingress` con host `miapp.k8s.homelab.local`. DNS ya resuelve.
 
-**tailscale serve:**
-1. Fijar `spec.clusterIP` en el Service (rp1 no resuelve el DNS del cluster; si el Service se recrea la IP cambiaría)
-2. Agregar entrada a `tailscale_serve` en `homelab-ansible/playbooks/tailscale.yml`
-3. `ansible-playbook playbooks/tailscale.yml --tags serve`
-4. Puertos 8443+ (el 443 de rp1 lo ocupa Traefik Docker)
+**Tailscale Service** (cada uno recibe su propia IP virtual del tailnet y su nombre):
+1. Fijar `spec.clusterIP` en el Service de k8s (rp1 no resuelve el DNS del cluster)
+2. Admin Tailscale → **Services → Define a Service**: nombre + endpoint `tcp:443`
+3. Política (Access controls): agregar `svc:<nombre>` al grant de `autogroup:member` (ip `443`) y a `autoApprovers.services` → `["tag:homelab"]`
+4. Agregar `{name, target}` a `tailscale_services` en `homelab-ansible/playbooks/tailscale.yml` y correr `--tags serve`
+5. ⚠️ El nombre debe coincidir **exactamente** en consola, política y playbook (ej. `camera` ≠ `camara`): si no, el DNS no resuelve o la conexión no llega (timeout), sin ningún error
 
-| Puerto | App | ClusterIP |
+Requisito: rp1 tiene **`tag:homelab`** (los hosts de Services deben tener tag; además desactiva el vencimiento de la llave).
+
+| Servicio | URL | ClusterIP destino |
 |---|---|---|
-| 8443 | go2rtc | 10.43.92.177:1984 |
-| 8444 | ntfy | 10.43.200.10:80 |
-| 8445 | Frigate | 10.43.200.11:5000 |
-| 8446 | Prometheus | 10.43.200.12:9090 |
-| 8447 | Grafana (login propio) | 10.43.200.13:3000 |
-| 8448 | Alertmanager | 10.43.200.14:9093 |
+| `svc:camera` (go2rtc) | `https://camera.tailb0ca85.ts.net` | 10.43.92.177:1984 |
+| `svc:ntfy` | `https://ntfy.tailb0ca85.ts.net` | 10.43.200.10:80 |
+| `svc:frigate` | `https://frigate.tailb0ca85.ts.net` | 10.43.200.11:5000 |
+| `svc:prometheus` | `https://prometheus.tailb0ca85.ts.net` | 10.43.200.12:9090 |
+| `svc:grafana` | `https://grafana.tailb0ca85.ts.net` | 10.43.200.13:3000 |
+| `svc:alertmanager` | `https://alertmanager.tailb0ca85.ts.net` | 10.43.200.14:9093 |
+
 
 ---
 
@@ -235,7 +239,7 @@ Cliente → DNS → *.k8s.homelab.local → 192.168.1.89 (WAN rp1)
 | dnsmasq | systemd | DHCP (LAN) + DNS (.homelab.local, .k8s.homelab.local) |
 | k3s server | systemd | Kubernetes control plane |
 | Traefik | Docker | Reverse proxy servicios legacy (:80/:443) |
-| Tailscale | systemd | VPN mesh + subnet router (10.0.0.0/24, en `tailscale.yml --tags routes`) + `tailscale serve` |
+| Tailscale | systemd | VPN mesh (`tag:homelab`) + subnet router (10.0.0.0/24, `--tags routes`) + Tailscale Services (`--tags serve`) |
 | UFW | systemd | Firewall — reglas en /etc/ufw/before.rules |
 | PostgreSQL | Docker + systemd | Base de datos para apps k8s (5432) |
 | GitHub Actions Runner | systemd | CI/CD self-hosted |
@@ -254,12 +258,12 @@ Estado real del cluster (nov 2026). Verificar con `kubectl get ns` y `kubectl ge
 
 | App | Namespace | Storage | Acceso |
 |-----|-----------|---------|--------|
-| go2rtc (cámara C110) | cameras | — (stateless) | `https://rp1-master.tailb0ca85.ts.net:8443` (tailscale serve) |
-| ntfy | ntfy | local-path (2Gi, rp3) | `https://rp1-master.tailb0ca85.ts.net:8444` (tailscale serve) |
-| Frigate | cameras | local-path (100Gi, pc1-node) | `https://rp1-master.tailb0ca85.ts.net:8445` (tailscale serve) |
-| Prometheus | monitoring | local-path (20Gi, rp2) | `https://rp1-master.tailb0ca85.ts.net:8446` |
-| Grafana | monitoring | local-path (5Gi, rp3) | `https://rp1-master.tailb0ca85.ts.net:8447` (login) |
-| Alertmanager | monitoring | local-path (2Gi, rp3) | `https://rp1-master.tailb0ca85.ts.net:8448` |
+| go2rtc (cámara C110) | cameras | — (stateless) | `https://camera.tailb0ca85.ts.net` (Tailscale Service) |
+| ntfy | ntfy | local-path (2Gi, rp3) | `https://ntfy.tailb0ca85.ts.net` (Tailscale Service) |
+| Frigate | cameras | local-path (100Gi, pc1-node) | `https://frigate.tailb0ca85.ts.net` (Tailscale Service) |
+| Prometheus | monitoring | local-path (20Gi, rp2) | `https://prometheus.tailb0ca85.ts.net` |
+| Grafana | monitoring | local-path (5Gi, rp3) | `https://grafana.tailb0ca85.ts.net` (login) |
+| Alertmanager | monitoring | local-path (2Gi, rp3) | `https://alertmanager.tailb0ca85.ts.net` |
 | Blackbox Exporter, kube-state-metrics | monitoring | — | interno |
 | MetalLB | metallb-system | — | — |
 | kite | kube-system | — | sin Ingress |
@@ -376,7 +380,7 @@ Ansible corre desde Mac. Nodos accesibles via ProxyJump por rp1.
 | `docker.yml` | Instalar Docker | nodes |
 | `local-storage.yml` | Montar SSD en /mnt/ssd | nodes |
 | `dns-client.yml` | resolv.conf estático en workers (10.0.0.1) | nodes |
-| `tailscale.yml` | VPN mesh + `tailscale serve` (`--tags serve`, lista `tailscale_serve`) | gateway |
+| `tailscale.yml` | VPN mesh, subnet router (`--tags routes`), Tailscale Services (`--tags serve`, lista `tailscale_services`) | gateway |
 | `node-exporter.yml` | Prometheus metrics + collector systemd (`node_exporter_systemd_units`) | all |
 | `registry.yml` | Registry privado + registries.yaml en nodos | gateway |
 | `github-runner.yml` | Self-hosted CI/CD runner | gateway |

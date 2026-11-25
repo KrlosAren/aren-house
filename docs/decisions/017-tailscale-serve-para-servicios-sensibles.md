@@ -1,6 +1,6 @@
 # ADR-017: `tailscale serve` en vez de Ingress para servicios sensibles
 
-**Estado:** Aceptado
+**Estado:** Aceptado (actualizado 2026-11-22: Tailscale Services)
 **Fecha:** 2026-11-21
 
 ## Contexto
@@ -72,3 +72,25 @@ El Ingress sigue siendo válido para apps no sensibles o con login propio robust
 **Revisar si:**
 - Se superan ~5 servicios publicados así → evaluar el Tailscale Kubernetes Operator.
 - Se despliega Cert-Manager → reevaluar Ingress + forward-auth para apps de uso doméstico (no solo del dueño).
+
+---
+
+## Actualización 2026-11-22: Tailscale Services (un nombre por servicio)
+
+Con 6 servicios publicados (el umbral de "revisar si" era ~5), se reemplazaron los puertos `rp1-master.<tailnet>.ts.net:8443-8448` por **Tailscale Services**: cada servicio recibe su propia IP virtual del tailnet (TailVIP) y su nombre, todos en `:443`.
+
+| Antes | Ahora |
+|---|---|
+| `https://rp1-master.tailb0ca85.ts.net:8445` | `https://frigate.tailb0ca85.ts.net` |
+
+Se eligió sobre el **Tailscale Kubernetes Operator** porque no agrega pods (un proxy por servicio) ni OAuth client: rp1 sigue siendo el único host, y encaja con el playbook existente.
+
+**Cambios necesarios:**
+- rp1 pasó a identidad de máquina **`tag:homelab`** (requisito para ser host de Services). Efecto colateral positivo: la llave de rp1 ya no vence (antes: 180 días, y su vencimiento habría tumbado todas las URLs).
+- Política de acceso: grant `autogroup:member → svc:*` (ip 443) y `autoApprovers` para los servicios y la ruta `10.0.0.0/24`.
+- Playbook: lista `tailscale_services` (reemplaza a `tailscale_serve`). Los puertos 8443-8448 fueron retirados de rp1 (verificado 2026-11-25: `tailscale serve status` solo muestra los 6 Services).
+- Clientes con la URL vieja guardada dejan de funcionar **en silencio**. En la app ntfy de iOS hubo que re-suscribir los topics: el hash del topic upstream en ntfy.sh depende de `base-url`.
+
+**Lección:** consola (definición), política (autorización) y host (anuncio) no se validan entre sí. Un nombre distinto (`camera` vs `camara`) produce, sin error, un servicio sin DNS o con DNS pero sin conexión.
+
+**Sigue vigente:** rp1 como punto único de falla y la configuración fuera de k8s.
