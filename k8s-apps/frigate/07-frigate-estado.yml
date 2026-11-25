@@ -1,0 +1,89 @@
+# Vigilante de armado/desarmado: escucha frigate/<cámara>/detect/state (MQTT) y avisa
+# por ntfy "camara" cada vez que algo (Atajos del iPhone, UI, API) cambia la detección.
+#
+# - Reutiliza el token de frigate-notify (usuario ntfy "frigate", write-only en "camara").
+# - mosquitto_sub -R ignora mensajes retenidos → no avisa al reiniciar el pod.
+# - Ojo: Frigate publica en detect/state el payload TAL CUAL lo recibió, aunque no lo
+#   haya aplicado (ej. "off" en minúsculas no hace nada; ver CLAUDE.md → Frigate).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frigate-estado-script
+  namespace: cameras
+data:
+  vigilar.sh: |
+    #!/bin/sh
+    set -u
+    BROKER=mosquitto.cameras.svc.cluster.local
+    NTFY=http://ntfy.ntfy.svc.cluster.local
+
+    # publicar <título> <mensaje> <prioridad 1-5> <tag ntfy>
+    publicar() {
+      body=$(printf '{"topic":"camara","title":"%s","message":"%s","priority":%s,"tags":["%s"]}' "$1" "$2" "$3" "$4")
+      wget -qO /dev/null --header="Authorization: Bearer $NTFY_TOKEN" \
+           --header="Content-Type: application/json" --post-data="$body" "$NTFY/" \
+        || echo "$(date '+%F %T') ERROR publicando en ntfy: $1"
+    }
+
+    echo "$(date '+%F %T') escuchando frigate/+/detect/state en $BROKER"
+    mosquitto_sub -h "$BROKER" -t 'frigate/+/detect/state' -v -R |
+    while read -r topic payload; do
+      cam=$(echo "$topic" | cut -d/ -f2)
+      hora=$(date '+%H:%M')
+      echo "$(date '+%F %T') $cam detect=$payload"
+
+      # Frigate compara exacto: solo "ON"/"OFF" se aplican. Cualquier otro valor
+      # se publica igual en detect/state pero NO cambia nada → avisar como error.
+      case "$payload" in
+        ON)  publicar "Cámara armada"    "$cam: detección encendida ($hora)" 3 "lock" ;;
+        OFF) publicar "Cámara desarmada" "$cam: detección apagada ($hora)"   4 "unlock" ;;
+        *)   publicar "Orden ignorada"   "$cam: Frigate recibió '$payload' y NO cambió nada. Usar ON/OFF en mayúsculas ($hora)" 4 "warning" ;;
+      esac
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frigate-estado
+  namespace: cameras
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate                  # 2 réplicas = notificaciones duplicadas
+  selector:
+    matchLabels:
+      app: frigate-estado
+  template:
+    metadata:
+      labels:
+        app: frigate-estado
+    spec:
+      containers:
+        - name: vigilar
+          image: eclipse-mosquitto:2.0.23   # trae mosquitto_sub + busybox wget (multi-arch)
+          command: ["sh", "/scripts/vigilar.sh"]
+          env:
+            - name: TZ                      # Alpine sin tzdata → zoneinfo montado del nodo
+              value: America/Santiago
+            - name: NTFY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: frigate-notify-ntfy
+                  key: NTFY_TOKEN
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+            - name: zoneinfo
+              mountPath: /usr/share/zoneinfo
+              readOnly: true
+          resources:
+            requests: {cpu: 5m, memory: 8Mi}
+            limits: {cpu: 50m, memory: 32Mi}
+      volumes:
+        - name: script
+          configMap:
+            name: frigate-estado-script
+        - name: zoneinfo
+          hostPath:
+            path: /usr/share/zoneinfo
+            type: Directory

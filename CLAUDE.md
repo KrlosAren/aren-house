@@ -292,6 +292,7 @@ Estado real del cluster (nov 2026). Verificar con `kubectl get ns` y `kubectl ge
   - El estado vive **solo en memoria**: al reiniciar Frigate vuelve a lo que dice el ConfigMap (`detect` ON). Falla segura, pero si Frigate se reinicia estando en casa, vuelve a notificar.
   - ⚠️ **Valores en MAYÚSCULAS** (`ON`/`OFF`). Frigate compara exacto: `off`/`On` no hace nada, pero igual responde `{"success":true}` y publica el valor en MQTT `detect/state` → parece apagado sin estarlo. Pasó con los Atajos del iPhone (nov 2026).
   - Estado real: `detection_enabled` en `/api/stats` (`kubectl exec -n cameras deploy/frigate -c frigate -- curl -s localhost:5000/api/stats`). **No confiar** en MQTT `detect/state` (repite el payload recibido), en `detection_fps` (0 también = escena sin movimiento) ni en `/api/config` (muestra el YAML cargado).
+  - **Aviso de cada cambio** (`07-frigate-estado.yml`): pod que escucha MQTT `frigate/+/detect/state` (`mosquitto_sub -R`, ignora retenidos) y publica en ntfy `camara` con el token de frigate-notify: ON → "Cámara armada" (prio 3), OFF → "Cámara desarmada" (prio 4), otro valor → "Orden ignorada" (prio 4). Avisa en cada orden recibida, aunque no cambie el estado (OFF estando en OFF también notifica).
   - La presencia por WiFi desde rp1 no es confiable (los equipos 2.4 GHz desaparecen en ahorro de energía) → usar la geocerca del teléfono.
 
 ### Notificaciones (Frigate → ntfy)
