@@ -329,7 +329,9 @@ Frigate --MQTT frigate/reviews--> Mosquitto --> frigate-notify --HTTP + snapshot
 - `auth-default-access: deny-all`. Usuario `admin`, password en el Secret `ntfy-admin` (ns `ntfy`, no está en git): `kubectl get secret ntfy-admin -n ntfy -o jsonpath='{.data.password}' | base64 -d`
 - `upstream-base-url: https://ntfy.sh` es necesario para push instantáneo en iOS (solo envía el ID del mensaje, no el contenido).
 - Publicadores dentro del cluster: `http://ntfy.ntfy.svc.cluster.local/<topic>`.
-- Topics: `camara` (Frigate), `alertas` (Alertmanager), `homelab` (pruebas). Usuarios: `admin` (todo), `frigate` y `alertmanager` (write-only en su topic).
+- Topics: `camara` (Frigate), `alertas` (Alertmanager), `homelab` (pruebas). Usuarios: `admin` (todo), `frigate` y `alertmanager` (write-only en su topic), `krlosaren` (read-only en los 3 topics; el del iPhone).
+- **iOS:** la app recibe solo el ID vía ntfy.sh y descarga el mensaje de este servidor con el usuario configurado **para esa URL exacta** (`https://ntfy.tailb0ca85.ts.net`). Usuario inexistente/sin permiso (401/403) o URL distinta (cambia el hash del topic upstream) → la notificación se descarta **en silencio**. Si se cambia `base-url`, hay que re-suscribir el iPhone.
+- **Diagnóstico iOS sin banner** (nov 2026): (1) escuchar en vivo `https://ntfy.sh/<sha256("https://ntfy.tailb0ca85.ts.net/<topic>")>/json` y publicar → si llega un `poll_request`, el servidor está bien; (2) publicar directo a un topic aleatorio de ntfy.sh → si tampoco hay banner, el problema es la app: **reinstalar ntfy** (re-registra el token de push) y re-suscribir. Fue la causa real, además de la URL vieja y el usuario inexistente.
 
 ---
 
