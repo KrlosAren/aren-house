@@ -32,6 +32,8 @@ data:
         topic: camara
         headers:
           - Authorization: Bearer __NTFY_TOKEN__
+          # 5 = max: en iOS llega como "sensible al tiempo" (atraviesa Concentración si ntfy está permitido)
+          - X-Priority: "5"
 ---
 apiVersion: apps/v1
 kind: Deployment

@@ -299,7 +299,7 @@ Estado real del cluster (nov 2026). Verificar con `kubectl get ns` y `kubectl ge
 Frigate --MQTT frigate/reviews--> Mosquitto --> frigate-notify --HTTP + snapshot--> ntfy topic "camara" --> 📱
 ```
 - **Mosquitto** (`05-mosquitto.yml`): solo ClusterIP, anónimo (solo pods del cluster llegan).
-- **frigate-notify** v0.5.4 (`06-frigate-notify.yml`): modo `reviews` → solo **alerts** (person), `min_score: 0.7`, `notify_once`. Perros/gatos no notifican.
+- **frigate-notify** v0.5.4 (`06-frigate-notify.yml`): modo `reviews` → solo **alerts** (person), `min_score: 0.7`, `notify_once`, prioridad ntfy **5** (header `X-Priority`). Perros/gatos no notifican.
 - Usuario ntfy `frigate`: **write-only** en `camara`. Token en Secret `frigate-notify-ntfy` (ns cameras, no en git); un `initContainer` lo inyecta reemplazando `__NTFY_TOKEN__` del ConfigMap en un `emptyDir` en memoria.
 - ntfy tiene adjuntos habilitados (`attachment-cache-dir`, 5M/archivo, 72h).
 - Probar sin pasar frente a la cámara (los eventos manuales tienen score 0 → usar `score`, y cerrarlos después):
