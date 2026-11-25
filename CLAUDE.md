@@ -283,6 +283,16 @@ Estado real del cluster (nov 2026). Verificar con `kubectl get ns` y `kubectl ge
 - `/config` escribible vía `initContainer` que copia el ConfigMap en cada arranque → **cambios hechos en la UI de Frigate se pierden al reiniciar; editar `01-frigate-config.yml`**.
 - `/dev/shm` (256Mi) y `/tmp/cache` (1Gi) son `emptyDir` en memoria (equivalente a `--shm-size`/tmpfs).
 - Puerto 5000 = UI sin auth; acceso solo por Tailscale (ADR-017).
+- **Armar/desarmar según presencia** (Atajos de iOS: "Al llegar" → OFF, "Al salir" → ON; el iPhone necesita Tailscale con VPN On Demand):
+  ```bash
+  curl -X PUT https://frigate.tailb0ca85.ts.net/api/camera/casona/set/detect \
+    -H 'Content-Type: application/json' -d '{"value":"OFF"}'   # o "ON"
+  ```
+  - `detect` OFF corta detección, alerts, grabación de eventos y notificaciones, y baja el detector OpenVINO de ~1 core a 0. Solo silenciar avisos sin dejar de grabar: `review_alerts`. Otras funciones (`motion`, `recordings`, `snapshots`, …) y `camera_name='*'` en `/api/openapi.json`.
+  - El estado vive **solo en memoria**: al reiniciar Frigate vuelve a lo que dice el ConfigMap (`detect` ON). Falla segura, pero si Frigate se reinicia estando en casa, vuelve a notificar.
+  - ⚠️ **Valores en MAYÚSCULAS** (`ON`/`OFF`). Frigate compara exacto: `off`/`On` no hace nada, pero igual responde `{"success":true}` y publica el valor en MQTT `detect/state` → parece apagado sin estarlo. Pasó con los Atajos del iPhone (nov 2026).
+  - Estado real: `detection_enabled` en `/api/stats` (`kubectl exec -n cameras deploy/frigate -c frigate -- curl -s localhost:5000/api/stats`). **No confiar** en MQTT `detect/state` (repite el payload recibido), en `detection_fps` (0 también = escena sin movimiento) ni en `/api/config` (muestra el YAML cargado).
+  - La presencia por WiFi desde rp1 no es confiable (los equipos 2.4 GHz desaparecen en ahorro de energía) → usar la geocerca del teléfono.
 
 ### Notificaciones (Frigate → ntfy)
 ```
