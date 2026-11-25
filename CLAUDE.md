@@ -400,6 +400,7 @@ Ansible corre desde Mac. Nodos accesibles via ProxyJump por rp1.
 - Manifiestos k8s van en `k8s-apps/<nombre-app>/` con archivos numerados (`01-`, `02-`, etc.)
 - Playbooks Ansible se prueban con `--check` antes de aplicar en producción (ojo: `command`/`shell` se saltan en `--check`; tareas de solo lectura llevan `check_mode: false`)
 - Imágenes con versión fija (no `latest`), preferir releases con ≥2 semanas
+- **Deployments con PVC `ReadWriteOnce` → `strategy: Recreate`**. Con `RollingUpdate` el pod nuevo arranca antes de que muera el viejo, ambos montan el mismo directorio (local-path, mismo nodo) y el nuevo choca con el lock (Prometheus: `lock DB directory: resource temporarily unavailable`; SQLite: database locked) → CrashLoop. Ya aplicado en prometheus, grafana, alertmanager, ntfy, frigate, go2rtc, frigate-notify.
 - Secrets: o cifrados con **SOPS + age** (`.sops.yaml` cifra todo `*secret*.yml`; ej. grafana, n8n) o creados con `kubectl create secret` fuera de git. Nunca en texto plano.
 - Todos los nodos usan usuario `admin` con UID 1000
 - **Multi-arquitectura** (arm64 + amd64): imágenes multi-arch (`docker manifest inspect`) o `nodeSelector: kubernetes.io/arch`. En playbooks, la arquitectura sale de `ansible_facts['architecture']` (nunca `arm64` fijo)

@@ -6,6 +6,10 @@ metadata:
   namespace: monitoring
 spec:
   replicas: 1
+  # Recreate: PVC ReadWriteOnce (TSDB con lockfile). Con RollingUpdate el pod nuevo arranca
+  # antes de que muera el viejo y choca con el bloqueo del almacenamiento (CrashLoop).
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: prometheus
