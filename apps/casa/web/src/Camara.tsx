@@ -13,6 +13,14 @@ interface Props {
 // "Aplicando…" y solo se da por hecho cuando el estado REAL coincide.
 const CONFIRMAR_MS = 40_000;
 
+// connection_quality de Frigate → texto en español + color (valores desconocidos se muestran tal cual)
+const CALIDAD: Record<string, { texto: string; clase: string }> = {
+  excellent: { texto: "excelente", clase: "" },
+  good: { texto: "buena", clase: "" },
+  fair: { texto: "regular", clase: "ambar" },
+  poor: { texto: "mala", clase: "error" },
+};
+
 function haceCuanto(epoch: number) {
   const s = Math.round(Date.now() / 1000 - epoch);
   if (s < 60) return "hace un momento";
@@ -80,7 +88,10 @@ export default function Camara({ camara, error, homelab, onCambio, onAviso }: Pr
 
       <dl className="datos">
         <div><dt>FPS</dt><dd className={sinVideo ? "error" : ""}>{camara.fps.toFixed(1)}</dd></div>
-        <div><dt>Conexión</dt><dd>{camara.calidad || "—"}</dd></div>
+        <div>
+          <dt>Conexión</dt>
+          <dd className={CALIDAD[camara.calidad]?.clase ?? ""}>{CALIDAD[camara.calidad]?.texto ?? (camara.calidad || "—")}</dd>
+        </div>
         <div>
           <dt>Ping</dt>
           <dd className={homelab?.ping_camara === false ? "error" : ""}>
