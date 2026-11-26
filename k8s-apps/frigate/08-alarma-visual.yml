@@ -1,0 +1,218 @@
+# Alarma visual: cuando Frigate crea una review "alert" (persona) → el foco WiZ del living
+# parpadea y queda en ROJO unos minutos; después vuelve exactamente a como estaba.
+#
+# - Solo se dispara si la cámara está ARMADA: con detect OFF Frigate no genera alerts.
+# - Solo de noche por defecto (ALARMA_DESDE/ALARMA_HASTA, hora local). Para siempre: 0 y 24.
+# - MQTT con la librería estándar de Python (sin pip): imagen sin dependencias ni red al arrancar.
+# - Foco: control local UDP :38899 (requiere en la app WiZ "Allow local" SIN "Only verified
+#   controls", ver CLAUDE.md → red de la casa). Si está apagado en la pared, no hay nada que hacer.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alarma-visual-script
+  namespace: cameras
+data:
+  alarma.py: |
+    import json, os, select, socket, struct, sys, time
+
+    MQTT_HOST = os.environ.get("MQTT_HOST", "mosquitto.cameras.svc.cluster.local")
+    WIZ_IP = os.environ["WIZ_IP"]
+    DESDE = int(os.environ.get("ALARMA_DESDE", "19"))      # hora local de inicio
+    HASTA = int(os.environ.get("ALARMA_HASTA", "7"))       # hora local de fin
+    DURACION = int(os.environ.get("ALARMA_SEGUNDOS", "180"))
+    PARPADEOS = int(os.environ.get("ALARMA_PARPADEOS", "4"))
+    ROJO = {"state": True, "r": 255, "g": 0, "b": 0, "dimming": 100}
+
+    def log(*a):
+        print(time.strftime("%F %T"), *a, flush=True)
+
+    # ------------------------------------------------------------------ WiZ (UDP)
+    wiz = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    wiz.bind(("", 0))
+
+    def wiz_cmd(method, params=None, intentos=3):
+        msg = json.dumps({"method": method, "params": params or {}}).encode()
+        for _ in range(intentos):
+            wiz.sendto(msg, (WIZ_IP, 38899))
+            r, _, _ = select.select([wiz], [], [], 1.0)
+            if r:
+                return json.loads(wiz.recvfrom(4096)[0])
+        return None
+
+    def estado_para_restaurar(p):
+        """Convierte un getPilot en el setPilot que lo reproduce."""
+        if not p.get("state"):
+            return {"state": False}
+        s = {"state": True, "dimming": p.get("dimming", 100)}
+        if p.get("r") is not None:
+            s.update(r=p["r"], g=p["g"], b=p["b"])
+        elif p.get("temp"):
+            s["temp"] = p["temp"]
+        elif p.get("sceneId"):
+            s["sceneId"] = p["sceneId"]
+        return s
+
+    # ------------------------------------------------------------------ MQTT 3.1.1 mínimo (QoS 0)
+    def _str(s):
+        b = s.encode()
+        return struct.pack("!H", len(b)) + b
+
+    def _paquete(tipo, cuerpo):
+        n, largo = len(cuerpo), b""
+        while True:
+            byte, n = n % 128, n // 128
+            largo += bytes([byte | (0x80 if n else 0)])
+            if not n:
+                return bytes([tipo]) + largo + cuerpo
+
+    def _leer(sock, n):
+        buf = b""
+        while len(buf) < n:
+            c = sock.recv(n - len(buf))
+            if not c:
+                raise ConnectionError("broker cerró la conexión")
+            buf += c
+        return buf
+
+    def mqtt_leer_paquete(sock):
+        tipo = _leer(sock, 1)[0] >> 4
+        mult, largo = 1, 0
+        while True:
+            b = _leer(sock, 1)[0]
+            largo += (b & 0x7F) * mult
+            mult *= 128
+            if not b & 0x80:
+                break
+        return tipo, _leer(sock, largo)
+
+    def mqtt_conectar(topic):
+        s = socket.create_connection((MQTT_HOST, 1883), timeout=10)
+        s.sendall(_paquete(0x10, _str("MQTT") + bytes([4, 0x02]) + struct.pack("!H", 60) + _str("alarma-visual")))
+        tipo, cuerpo = mqtt_leer_paquete(s)
+        if tipo != 2 or cuerpo[1] != 0:
+            raise ConnectionError(f"CONNACK rechazado: {cuerpo!r}")
+        s.sendall(_paquete(0x82, struct.pack("!H", 1) + _str(topic) + b"\x00"))
+        return s
+
+    # ------------------------------------------------------------------ lógica de la alarma
+    def es_de_noche():
+        h = time.localtime().tm_hour
+        return DESDE <= h < HASTA if DESDE <= HASTA else (h >= DESDE or h < HASTA)
+
+    activa_hasta = 0.0      # epoch en que termina la alarma (0 = inactiva)
+    guardado = None         # estado del foco antes de la alarma
+    vistos = []             # ids de reviews ya procesadas
+
+    def disparar(review_id):
+        global activa_hasta, guardado
+        if activa_hasta:                      # ya está en rojo: solo se extiende
+            activa_hasta = time.time() + DURACION
+            log(f"alarma extendida por {review_id}")
+            return
+        p = wiz_cmd("getPilot")
+        if not p:
+            log(f"foco {WIZ_IP} sin respuesta (¿apagado en la pared?) — alarma omitida")
+            return
+        guardado = estado_para_restaurar(p.get("result", {}))
+        for _ in range(PARPADEOS):
+            wiz_cmd("setPilot", ROJO, intentos=1); time.sleep(0.5)
+            wiz_cmd("setPilot", {"state": False}, intentos=1); time.sleep(0.5)
+        r = wiz_cmd("setPilot", ROJO)
+        activa_hasta = time.time() + DURACION
+        log(f"ALARMA por {review_id}: foco en rojo {DURACION}s (respuesta: {r and (r.get('result') or r.get('error'))}); guardado={guardado}")
+
+    def restaurar():
+        global activa_hasta, guardado
+        r = wiz_cmd("setPilot", guardado)
+        log(f"alarma terminada, foco restaurado a {guardado} (respuesta: {r and (r.get('result') or r.get('error'))})")
+        activa_hasta, guardado = 0.0, None
+
+    def procesar(payload):
+        try:
+            m = json.loads(payload)
+        except ValueError:
+            return
+        after = m.get("after") or {}
+        rid = after.get("id")
+        if after.get("severity") != "alert" or not rid or rid in vistos:
+            return
+        vistos.append(rid); del vistos[:-100]
+        if not es_de_noche():
+            log(f"alert {rid} fuera del horario {DESDE}-{HASTA}h — sin alarma")
+            return
+        disparar(rid)
+
+    def main():
+        log(f"alarma visual: foco {WIZ_IP}, horario {DESDE}-{HASTA}h, {DURACION}s en rojo")
+        s = mqtt_conectar("frigate/reviews")
+        ultimo_ping = time.time()
+        while True:
+            espera = 1.0 if activa_hasta else 15.0
+            r, _, _ = select.select([s], [], [], espera)
+            if r:
+                tipo, cuerpo = mqtt_leer_paquete(s)
+                if tipo == 3:                                   # PUBLISH (QoS 0)
+                    largo_topic = struct.unpack("!H", cuerpo[:2])[0]
+                    procesar(cuerpo[2 + largo_topic:])
+            if activa_hasta and time.time() >= activa_hasta:
+                restaurar()
+            if time.time() - ultimo_ping > 30:                  # keepalive = 60 s
+                s.sendall(b"\xc0\x00"); ultimo_ping = time.time()
+
+    try:
+        main()
+    except Exception as e:                                       # k8s reinicia el pod
+        log(f"ERROR: {e!r}")
+        if guardado:
+            wiz_cmd("setPilot", guardado)                        # no dejar el foco en rojo
+        sys.exit(1)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alarma-visual
+  namespace: cameras
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate                  # 2 réplicas = dos alarmas peleando por el foco
+  selector:
+    matchLabels:
+      app: alarma-visual
+  template:
+    metadata:
+      labels:
+        app: alarma-visual
+    spec:
+      containers:
+        - name: alarma
+          image: python:3.13.9-alpine3.22   # multi-arch, solo librería estándar
+          command: ["python3", "-u", "/scripts/alarma.py"]
+          env:
+            - name: WIZ_IP
+              value: "192.168.1.165"        # foco del living (reservar IP en el módem)
+            - name: ALARMA_DESDE
+              value: "19"
+            - name: ALARMA_HASTA
+              value: "7"
+            - name: ALARMA_SEGUNDOS
+              value: "180"
+            - name: TZ                      # Alpine sin tzdata → zoneinfo montado del nodo
+              value: America/Santiago
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+            - name: zoneinfo
+              mountPath: /usr/share/zoneinfo
+              readOnly: true
+          resources:
+            requests: {cpu: 5m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+      volumes:
+        - name: script
+          configMap:
+            name: alarma-visual-script
+        - name: zoneinfo
+          hostPath:
+            path: /usr/share/zoneinfo
+            type: Directory

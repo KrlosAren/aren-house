@@ -72,6 +72,10 @@ Tailscale VPN: 100.x.x.x (mesh, bypasses CGNAT)
 | Módem Movistar (MitraStar) | 192.168.1.1 | 44:3b:14:fc:15:c0 | Router ISP, DHCP de la casa |
 | rp1 WAN | 192.168.1.89 | 00:e0:4c:68:3d:a2 | `enx00e04c683da2` |
 | Cámara Tapo C110 | 192.168.1.162 (reservada en el módem) | 3c:78:95:4c:6b:a4 | WiFi 2.4 "casona", RTSP :554, consumida por go2rtc |
+| Foco WiZ **living** (`ESP25_SHRGB_01`, fw 1.38.0) | 192.168.1.165 (DHCP) | 98:77:d5:23:1f:1e | WiFi "casona", control local UDP :38899 ✅ |
+| Foco WiZ **habitación principal** (`ESP25_SHRGB_01`, fw 1.30.40) | 192.168.1.166 (DHCP) | 98:77:d5:23:3b:66 | WiFi "casona", control local UDP :38899 ✅ |
+
+**Focos WiZ:** control local `{"method":"setPilot","params":{"state":true,"r":255,"g":0,"b":0,"dimming":100}}` por UDP :38899 (`getPilot` para leer). Desde fw ~1.30 requiere en la app WiZ → *Local communication settings* → **Allow local** + la opción **sin** "Only verified controls": con "verified" el foco exige órdenes firmadas (HMAC con clave de la nube) y responde `Invalid params` a todo, aunque `getPilot` siga funcionando. Sin firma = cualquiera en "casona" puede controlarlos. El ajuste llega a cada foco desde la nube (puede tardar o requerir cortar la luz: así se aplicó al de la habitación). Apagado en el **interruptor de pared** = sin red, ni la app ni el homelab lo controlan.
 
 Los pods alcanzan 192.168.1.x vía el MASQUERADE de rp1. Para ver equipos WiFi de la casa, escanear desde rp1 (cableado) — desde la Mac por WiFi se pierden dispositivos 2.4 GHz en ahorro de energía.
 
@@ -300,6 +304,7 @@ Estado real del cluster (nov 2026). Verificar con `kubectl get ns` y `kubectl ge
   - **Aviso de cada cambio** (`07-frigate-estado.yml`): pod que escucha MQTT `frigate/+/detect/state` (`mosquitto_sub -R`, ignora retenidos) y publica en ntfy `camara` con el token de frigate-notify: ON → "Cámara armada" (prio 3), OFF → "Cámara desarmada" (prio 4), otro valor → "Orden ignorada" (prio 4). Avisa en cada orden recibida, aunque no cambie el estado (OFF estando en OFF también notifica).
   - La presencia por WiFi desde rp1 no es confiable (los equipos 2.4 GHz desaparecen en ahorro de energía) → usar la geocerca del teléfono.
 
+  - **Alarma visual** (`08-alarma-visual.yml`): review `alert` (persona) en MQTT `frigate/reviews` → foco WiZ del living (192.168.1.165) parpadea y queda en rojo 3 min, luego restaura su estado previo. Solo 19-07 h (`ALARMA_DESDE/HASTA`) y solo con la cámara armada (detect OFF = sin alerts). Python stdlib (MQTT mínimo propio, sin pip). Probar de día: `kubectl set env deploy/alarma-visual -n cameras ALARMA_DESDE=0 ALARMA_HASTA=24 ALARMA_SEGUNDOS=20` + evento manual; volver con `kubectl apply -f 08-alarma-visual.yml`.
 ### Notificaciones (Frigate → ntfy)
 ```
 Frigate --MQTT frigate/reviews--> Mosquitto --> frigate-notify --HTTP + snapshot--> ntfy topic "camara" --> 📱
