@@ -1,0 +1,14 @@
+# ClusterIP fija: rp1 la usa como destino del Tailscale Service svc:casa (no resuelve el DNS del cluster)
+apiVersion: v1
+kind: Service
+metadata:
+  name: casa
+  namespace: casa
+spec:
+  clusterIP: 10.43.200.15
+  selector:
+    app: casa
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

@@ -1,0 +1,52 @@
+# casa: API + PWA (apps/casa). Imagen multi-arch construida por .github/workflows/casa.yml.
+# Para desplegar una versión nueva: cambiar el tag (SHA del commit) y `kubectl apply`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: casa
+  namespace: casa
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: casa
+  template:
+    metadata:
+      labels:
+        app: casa
+    spec:
+      # Stateless y multi-arch: puede correr en cualquier nodo
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: casa
+          image: ghcr.io/krlosaren/aren-house-casa:__TAG__
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: FOCOS                     # id:nombre:ip (reservar las IPs en el módem)
+              value: "living:Living:192.168.1.165,habitacion:Habitación principal:192.168.1.166"
+            - name: FRIGATE_URL
+              value: http://frigate.cameras.svc.cluster.local:5000
+            - name: CAMARA
+              value: casona
+            - name: PROMETHEUS_URL
+              value: http://prometheus.monitoring.svc.cluster.local:9090
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 30
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 200m, memory: 64Mi}

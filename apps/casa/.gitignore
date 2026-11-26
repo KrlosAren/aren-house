@@ -1,0 +1,4 @@
+web/node_modules/
+# web/dist se genera en el build; .gitkeep existe para que `go:embed` compile sin build previo
+web/dist/*
+!web/dist/.gitkeep

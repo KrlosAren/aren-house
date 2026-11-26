@@ -31,6 +31,8 @@
         target: http://10.43.200.13:3000   # Service grafana (ns monitoring)
       - name: alertmanager
         target: http://10.43.200.14:9093   # Service alertmanager (ns monitoring)
+      - name: casa              # PWA cámara/focos/homelab (apps/casa); HTTPS obligatorio para PWA
+        target: http://10.43.200.15:80     # Service casa (ns casa)
 
   tasks:
     - name: Instalar Tailscale via script oficial

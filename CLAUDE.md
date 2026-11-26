@@ -207,6 +207,7 @@ Requisito: rp1 tiene **`tag:homelab`** (los hosts de Services deben tener tag; a
 | `svc:prometheus` | `https://prometheus.tailb0ca85.ts.net` | 10.43.200.12:9090 |
 | `svc:grafana` | `https://grafana.tailb0ca85.ts.net` | 10.43.200.13:3000 |
 | `svc:alertmanager` | `https://alertmanager.tailb0ca85.ts.net` | 10.43.200.14:9093 |
+| `svc:casa` (PWA) | `https://casa.tailb0ca85.ts.net` | 10.43.200.15:80 |
 
 
 ---
@@ -268,6 +269,7 @@ Estado real del cluster (nov 2026). Verificar con `kubectl get ns` y `kubectl ge
 | Prometheus | monitoring | local-path (20Gi, rp2) | `https://prometheus.tailb0ca85.ts.net` |
 | Grafana | monitoring | local-path (5Gi, rp3) | `https://grafana.tailb0ca85.ts.net` (login) |
 | Alertmanager | monitoring | local-path (2Gi, rp3) | `https://alertmanager.tailb0ca85.ts.net` |
+| casa (PWA cámara/focos/homelab) | casa | — (stateless) | `https://casa.tailb0ca85.ts.net` (Tailscale Service) |
 | Blackbox Exporter, kube-state-metrics | monitoring | — | interno |
 | MetalLB | metallb-system | — | — |
 | kite | kube-system | — | sin Ingress |
@@ -302,9 +304,16 @@ Estado real del cluster (nov 2026). Verificar con `kubectl get ns` y `kubectl ge
   - ⚠️ **Valores en MAYÚSCULAS** (`ON`/`OFF`). Frigate compara exacto: `off`/`On` no hace nada, pero igual responde `{"success":true}` y publica el valor en MQTT `detect/state` → parece apagado sin estarlo. Pasó con los Atajos del iPhone (nov 2026).
   - Estado real: `detection_enabled` en `/api/stats` (`kubectl exec -n cameras deploy/frigate -c frigate -- curl -s localhost:5000/api/stats`). **No confiar** en MQTT `detect/state` (repite el payload recibido), en `detection_fps` (0 también = escena sin movimiento) ni en `/api/config` (muestra el YAML cargado).
   - **Aviso de cada cambio** (`07-frigate-estado.yml`): pod que escucha MQTT `frigate/+/detect/state` (`mosquitto_sub -R`, ignora retenidos) y publica en ntfy `camara` con el token de frigate-notify: ON → "Cámara armada" (prio 3), OFF → "Cámara desarmada" (prio 4), otro valor → "Orden ignorada" (prio 4). Avisa en cada orden recibida, aunque no cambie el estado (OFF estando en OFF también notifica).
+  - **Alarma visual** (`08-alarma-visual.yml`): review `alert` (persona) en MQTT `frigate/reviews` → foco WiZ del living (192.168.1.165) parpadea y queda en rojo 3 min, luego restaura su estado previo. Solo 19-07 h (`ALARMA_DESDE/HASTA`) y solo con la cámara armada (detect OFF = sin alerts). Python stdlib (MQTT mínimo propio, sin pip). Probar de día: `kubectl set env deploy/alarma-visual -n cameras ALARMA_DESDE=0 ALARMA_HASTA=24 ALARMA_SEGUNDOS=20` + evento manual; volver con `kubectl apply -f 08-alarma-visual.yml`.
   - La presencia por WiFi desde rp1 no es confiable (los equipos 2.4 GHz desaparecen en ahorro de energía) → usar la geocerca del teléfono.
 
-  - **Alarma visual** (`08-alarma-visual.yml`): review `alert` (persona) en MQTT `frigate/reviews` → foco WiZ del living (192.168.1.165) parpadea y queda en rojo 3 min, luego restaura su estado previo. Solo 19-07 h (`ALARMA_DESDE/HASTA`) y solo con la cámara armada (detect OFF = sin alerts). Python stdlib (MQTT mínimo propio, sin pip). Probar de día: `kubectl set env deploy/alarma-visual -n cameras ALARMA_DESDE=0 ALARMA_HASTA=24 ALARMA_SEGUNDOS=20` + evento manual; volver con `kubectl apply -f 08-alarma-visual.yml`.
+### casa (PWA)
+- `apps/casa`: API Go (solo stdlib) que embebe la PWA React (`go:embed web/dist`). Un binario, imagen distroless nonroot, multi-arch. ADR-020.
+- Endpoints: `GET /api/estado` (cámara + focos + homelab en paralelo; cada fuente falla por separado), `POST /api/camara/deteccion {"activa":bool}`, `GET /api/camara/imagen`, `GET /api/camara/eventos/{id}/foto`, `POST /api/focos/{id} {"encendido","brillo","color":"#rrggbb","temp"}`.
+- Estado de la cámara = `detection_enabled` de `/api/stats` (real). Tarda ~15 s en reflejar un cambio: la PWA muestra "Aplicando…" hasta confirmarlo.
+- Focos por env `FOCOS=id:nombre:ip,...`. Imagen: `ghcr.io/krlosaren/aren-house-casa:<sha>`, la construye `.github/workflows/casa.yml` (runners de GitHub) en cada push a `apps/casa/**`. **Desplegar** = poner el SHA en `k8s-apps/casa/01-casa-deployment.yml` + `kubectl apply`.
+- Desarrollo local: `cd apps/casa/web && npm run build`, luego `FRIGATE_URL=https://frigate.tailb0ca85.ts.net PROMETHEUS_URL=https://prometheus.tailb0ca85.ts.net FOCOS=... go run .` (Go ≥1.25; los focos solo si la Mac está en "casona"). Con `npm run dev` (proxy `/api` → :8080) para hot reload.
+
 ### Notificaciones (Frigate → ntfy)
 ```
 Frigate --MQTT frigate/reviews--> Mosquitto --> frigate-notify --HTTP + snapshot--> ntfy topic "camara" --> 📱
@@ -499,6 +508,7 @@ aren-house/
 ├── CLAUDE.md
 ├── .github/workflows/         # CI/CD (build & push al registry local)
 ├── apps/
+│   ├── casa/                  # PWA (React) + API (Go): cámara, focos, homelab (ADR-020)
 │   └── test-app/              # Express app de prueba
 ├── certifications/            # Roadmap y materiales KCNA
 ├── homelab-ansible/
@@ -507,6 +517,7 @@ aren-house/
 │   └── roles/                 # dnsmasq, wireguard, nfs
 ├── k8s-apps/
 │   ├── argocd/                # namespace + ingress (no desplegado)
+│   ├── casa/                  # PWA casa (ns casa, imagen GHCR)
 │   ├── falco/                 # Helm values (no desplegado)
 │   ├── frigate/               # NVR + detección IA (desplegado, ns cameras, pc1-node)
 │   ├── go2rtc/                # cámara Tapo C110 (desplegado, ns cameras)
@@ -521,7 +532,7 @@ aren-house/
 │   └── test-app/
 ├── stacks/                    # Docker Compose (migración en curso)
 └── docs/
-    ├── decisions/             # ADRs 001-019
+    ├── decisions/             # ADRs 001-020
     ├── concepts/
     ├── guides/                # firewall.md, k3s-guide.md, network-troubleshooting.md
     ├── reference/             # IPs, URLs, comandos
@@ -584,3 +595,4 @@ aren-house/
 | 017 | `tailscale serve` en vez de Ingress para servicios sensibles (cámara, ntfy) |
 | 018 | Primer nodo x86_64 (pc1-node) en el cluster arm64 |
 | 019 | Frigate en pc1-node con detector OpenVINO (CPU) |
+| 020 | PWA propia `casa` (Go + React) en vez de Home Assistant |
