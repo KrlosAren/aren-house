@@ -23,7 +23,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: casa
-          image: ghcr.io/krlosaren/aren-house-casa:cc5296732b6fe81a817591c9c30cbcaeda2caab7
+          image: ghcr.io/krlosaren/aren-house-casa:671fcd7ac2827602cc3d7a7325299ac6bb0ab5ea
           ports:
             - name: http
               containerPort: 8080
