@@ -66,6 +66,12 @@ small { display: block; }
 .video { position: relative; border-radius: 12px; overflow: hidden; background: #000; aspect-ratio: 16 / 9; }
 .video img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .sobre { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; background: #000a; font-weight: 600; }
+.envivo, .envivo video-rtc, .envivo video { width: 100%; height: 100%; display: block; }
+.envivo video { object-fit: contain; background: #000; }
+.en-vivo { position: absolute; top: 8px; left: 8px; background: var(--rojo); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; letter-spacing: .5px; }
+.controles-vivo { justify-content: flex-start; gap: 8px; }
+.chip { padding: 6px 14px; border-radius: 99px; background: var(--borde); color: var(--texto); font-size: 14px; font-weight: 600; }
+.chip.activo { background: var(--azul); color: #fff; }
 
 .datos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0; }
 .datos div { text-align: center; }

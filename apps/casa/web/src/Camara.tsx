@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import { api, type Estado, type EstadoCamara } from "./api";
+import EnVivo from "./EnVivo";
+
+// En vivo se corta solo: sub ≈ 150 MB/h, HD ≈ 530 MB/h si se queda abierto por olvido
+const VIVO_MAX_MS = 10 * 60_000;
 
 interface Props {
   camara?: EstadoCamara;
@@ -32,12 +36,24 @@ function haceCuanto(epoch: number) {
 export default function Camara({ camara, error, homelab, onCambio, onAviso }: Props) {
   const [pendiente, setPendiente] = useState<{ armada: boolean; hasta: number } | null>(null);
   const [tick, setTick] = useState(0);
+  const [vivo, setVivo] = useState<"sub" | "hd" | null>(null);
 
-  // Imagen en vivo cada 10 s
+  // Imagen fija cada 10 s (solo si no se está viendo en vivo)
   useEffect(() => {
+    if (vivo) return;
     const t = window.setInterval(() => setTick((n) => n + 1), 10_000);
     return () => window.clearInterval(t);
-  }, []);
+  }, [vivo]);
+
+  // Corte automático del vivo
+  useEffect(() => {
+    if (!vivo) return;
+    const t = window.setTimeout(() => {
+      setVivo(null);
+      onAviso("En vivo detenido tras 10 min (para no gastar datos).");
+    }, VIVO_MAX_MS);
+    return () => window.clearTimeout(t);
+  }, [vivo, onAviso]);
 
   // Confirmación del cambio pendiente
   useEffect(() => {
@@ -82,8 +98,26 @@ export default function Camara({ camara, error, homelab, onCambio, onAviso }: Pr
       </div>
 
       <div className="video">
-        <img src={`/api/camara/imagen?t=${tick}`} alt="Vista actual de la cámara" />
+        {vivo ? (
+          <>
+            <EnVivo calidad={vivo} />
+            <span className="en-vivo">● EN VIVO {vivo === "hd" ? "HD" : ""}</span>
+          </>
+        ) : (
+          <img src={`/api/camara/imagen?t=${tick}`} alt="Vista actual de la cámara" />
+        )}
         {sinVideo && <span className="sobre">Sin video</span>}
+      </div>
+
+      <div className="fila controles-vivo">
+        <button className="chip" onClick={() => setVivo(vivo ? null : "sub")}>
+          {vivo ? "■ Detener" : "▶ Ver en vivo"}
+        </button>
+        {vivo && (
+          <button className={`chip ${vivo === "hd" ? "activo" : ""}`} onClick={() => setVivo(vivo === "hd" ? "sub" : "hd")}>
+            HD {vivo === "hd" ? "✓" : ""}
+          </button>
+        )}
       </div>
 
       <dl className="datos">

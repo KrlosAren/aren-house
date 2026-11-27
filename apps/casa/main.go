@@ -10,6 +10,7 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ var webDist embed.FS
 type App struct {
 	frigate *Frigate
 	prom    *Prometheus
+	go2rtc  *Go2RTC
 	focos   []Foco
 }
 
@@ -196,10 +198,17 @@ func main() {
 		log.Fatal(err)
 	}
 	cli := &http.Client{Timeout: 4 * time.Second}
+	camara := env("CAMARA", "casona")
+	go2rtcURL, err := url.Parse(env("GO2RTC_URL", "http://go2rtc.cameras.svc.cluster.local:1984"))
+	if err != nil {
+		log.Fatalf("GO2RTC_URL: %v", err)
+	}
 	app := &App{
-		frigate: &Frigate{URL: env("FRIGATE_URL", "http://frigate.cameras.svc.cluster.local:5000"), Camara: env("CAMARA", "casona"), http: cli},
+		frigate: &Frigate{URL: env("FRIGATE_URL", "http://frigate.cameras.svc.cluster.local:5000"), Camara: camara, http: cli},
 		prom:    &Prometheus{URL: env("PROMETHEUS_URL", "http://prometheus.monitoring.svc.cluster.local:9090"), http: cli},
-		focos:   focos,
+		// sub = 720p (~330 kbps), hd = 3MP (~1,2 Mbps); mismos nombres que en go2rtc.yaml
+		go2rtc: &Go2RTC{URL: go2rtcURL, Streams: map[string]string{"sub": camara + "_sub", "hd": camara}},
+		focos:  focos,
 	}
 
 	mux := http.NewServeMux()
@@ -208,6 +217,7 @@ func main() {
 	mux.HandleFunc("POST /api/camara/deteccion", app.deteccion)
 	mux.HandleFunc("GET /api/camara/imagen", app.imagenCamara)
 	mux.HandleFunc("GET /api/camara/eventos/{id}/foto", app.fotoEvento)
+	mux.HandleFunc("GET /api/camara/vivo", app.go2rtc.vivo) // WebSocket (MSE)
 	mux.HandleFunc("POST /api/focos/{id}", app.cambiarFoco)
 
 	// PWA: archivos estáticos; rutas desconocidas → index.html (SPA)
