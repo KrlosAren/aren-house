@@ -294,7 +294,12 @@ Estado real del cluster (nov 2026). Verificar con `kubectl get ns` y `kubectl ge
 - `/config` escribible vía `initContainer` que copia el ConfigMap en cada arranque → **cambios hechos en la UI de Frigate se pierden al reiniciar; editar `01-frigate-config.yml`**.
 - `/dev/shm` (256Mi) y `/tmp/cache` (1Gi) son `emptyDir` en memoria (equivalente a `--shm-size`/tmpfs).
 - Puerto 5000 = UI sin auth; acceso solo por Tailscale (ADR-017).
-- **Armar/desarmar según presencia** (Atajos de iOS: "Al llegar" → OFF, "Al salir" → ON; el iPhone necesita Tailscale con VPN On Demand):
+- **Armar/desarmar según presencia** (Atajos de iOS: "Al llegar" → desarmar, "Al salir" → armar; el iPhone necesita Tailscale con VPN On Demand). **Usar la API de casa** (booleano, 400 si el body es inválido):
+  ```bash
+  curl -X POST https://casa.tailb0ca85.ts.net/api/camara/deteccion \
+    -H 'Content-Type: application/json' -d '{"activa":false}'   # o true
+  ```
+  En Atajos: POST, cuerpo JSON con `activa` de tipo **Booleano**. Llamada directa a Frigate (lo que hace casa por dentro; legacy):
   ```bash
   curl -X PUT https://frigate.tailb0ca85.ts.net/api/camera/casona/set/detect \
     -H 'Content-Type: application/json' -d '{"value":"OFF"}'   # o "ON"
