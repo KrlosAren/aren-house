@@ -23,7 +23,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: casa
-          image: ghcr.io/krlosaren/aren-house-casa:d87383e5ce4e5d30f8f2be495bf65aaa16f33f24
+          image: ghcr.io/krlosaren/aren-house-casa:b855cfc5313244f313625b937c27ee883209b646
           ports:
             - name: http
               containerPort: 8080
@@ -40,6 +40,8 @@ spec:
               value: http://prometheus.monitoring.svc.cluster.local:9090
             - name: GO2RTC_URL                # video en vivo (proxy WebSocket, MSE)
               value: http://go2rtc.cameras.svc.cluster.local:1984
+            - name: CLIPS_DIR                 # caché de clips de eventos (Safari necesita Range → 206)
+              value: /clips
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -51,6 +53,13 @@ spec:
           livenessProbe:
             httpGet: {path: /healthz, port: http}
             periodSeconds: 30
+          volumeMounts:
+            - name: clips
+              mountPath: /clips
           resources:
             requests: {cpu: 10m, memory: 16Mi}
             limits: {cpu: 200m, memory: 64Mi}
+      volumes:
+        - name: clips                       # el root es de solo lectura; máx. 15 clips (~2-15 MB c/u)
+          emptyDir:
+            sizeLimit: 500Mi
