@@ -20,6 +20,11 @@ type Go2RTC struct {
 }
 
 func (g *Go2RTC) vivo(w http.ResponseWriter, r *http.Request) {
+	if !mismoOrigen(r) {
+		log.Printf("vivo: rechazado origen %q (Sec-Fetch-Site %q) desde %s", r.Header.Get("Origin"), r.Header.Get("Sec-Fetch-Site"), r.RemoteAddr)
+		http.Error(w, "origen no permitido", http.StatusForbidden)
+		return
+	}
 	calidad := r.URL.Query().Get("calidad")
 	src, ok := g.Streams[calidad]
 	if !ok {

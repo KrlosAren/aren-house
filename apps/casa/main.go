@@ -274,6 +274,6 @@ func main() {
 
 	addr := ":" + env("PORT", "8080")
 	log.Printf("casa %s escuchando en %s — focos: %d, frigate: %s", version, addr, len(focos), app.frigate.URL)
-	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Addr: addr, Handler: protegerOrigen(mux), ReadHeaderTimeout: 5 * time.Second}
 	log.Fatal(srv.ListenAndServe())
 }
