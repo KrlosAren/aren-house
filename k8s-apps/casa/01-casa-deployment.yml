@@ -28,6 +28,8 @@ spec:
             - name: http
               containerPort: 8080
           env:
+            - name: TZ                        # hora local en los logs (tzdata va embebido en el binario)
+              value: America/Santiago
             - name: FOCOS                     # id:nombre:ip (reservar las IPs en el módem)
               value: "living:Living:192.168.1.165,habitacion:Habitación principal:192.168.1.166"
             - name: FRIGATE_URL

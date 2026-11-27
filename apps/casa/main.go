@@ -6,15 +6,18 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
 	"mime"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	_ "time/tzdata" // distroless no trae zoneinfo: sin esto TZ=America/Santiago no tiene efecto
 )
 
 //go:embed all:web/dist
@@ -146,8 +149,13 @@ func (a *App) deteccion(w http.ResponseWriter, r *http.Request) {
 	responder(w, http.StatusAccepted, map[string]bool{"activa": *body.Activa})
 }
 
+// ?alto=720 para la vista ampliada (el stream de detección es 1280x720: más no aporta)
 func (a *App) imagenCamara(w http.ResponseWriter, r *http.Request) {
-	a.frigate.proxyImagen(w, "/api/"+a.frigate.Camara+"/latest.jpg?h=480")
+	alto := 480
+	if v, err := strconv.Atoi(r.URL.Query().Get("alto")); err == nil && v >= 240 && v <= 720 {
+		alto = v
+	}
+	a.frigate.proxyImagen(w, fmt.Sprintf("/api/%s/latest.jpg?h=%d", a.frigate.Camara, alto))
 }
 
 func (a *App) fotoEvento(w http.ResponseWriter, r *http.Request) {

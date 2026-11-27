@@ -14,7 +14,10 @@ export default function EnVivo({ calidad }: { calidad: "sub" | "hd" }) {
     el.mode = "mse";
     el.media = "video";
     el.background = false; // con la app oculta deja de transmitir
-    contenedor.current!.appendChild(el);
+    contenedor.current!.appendChild(el); // connectedCallback crea el <video> interno
+    // Sin controles nativos: en vivo no hay nada que adelantar, y en iOS se "comen" el toque
+    // que amplía la cámara
+    el.video.controls = false;
     el.src = `/api/camara/vivo?calidad=${calidad}`; // conecta al estar ya en el DOM
     return () => el.remove();
   }, [calidad]);

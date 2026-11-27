@@ -37,6 +37,19 @@ export default function Camara({ camara, error, homelab, onCambio, onAviso }: Pr
   const [pendiente, setPendiente] = useState<{ armada: boolean; hasta: number } | null>(null);
   const [tick, setTick] = useState(0);
   const [vivo, setVivo] = useState<"sub" | "hd" | null>(null);
+  const [ampliada, setAmpliada] = useState(false);
+
+  // Vista ampliada: bloquear el scroll de fondo y cerrar con Escape (teclado en Mac)
+  useEffect(() => {
+    if (!ampliada) return;
+    document.body.style.overflow = "hidden";
+    const tecla = (e: KeyboardEvent) => e.key === "Escape" && setAmpliada(false);
+    window.addEventListener("keydown", tecla);
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("keydown", tecla);
+    };
+  }, [ampliada]);
 
   // Imagen fija cada 10 s (solo si no se está viendo en vivo)
   useEffect(() => {
@@ -97,16 +110,23 @@ export default function Camara({ camara, error, homelab, onCambio, onAviso }: Pr
         </span>
       </div>
 
-      <div className="video">
+      {/* Mismo elemento, agrandado con CSS: el video en vivo NO se desmonta ni se reconecta */}
+      <div
+        className={`video ${ampliada ? "ampliada" : ""}`}
+        onClick={() => setAmpliada((a) => !a)}
+        role="button"
+        aria-label={ampliada ? "Cerrar vista ampliada" : "Ampliar cámara"}
+      >
         {vivo ? (
           <>
             <EnVivo calidad={vivo} />
             <span className="en-vivo">● EN VIVO {vivo === "hd" ? "HD" : ""}</span>
           </>
         ) : (
-          <img src={`/api/camara/imagen?t=${tick}`} alt="Vista actual de la cámara" />
+          <img src={`/api/camara/imagen?t=${tick}${ampliada ? "&alto=720" : ""}`} alt="Vista actual de la cámara" />
         )}
         {sinVideo && <span className="sobre">Sin video</span>}
+        {ampliada ? <span className="cerrar">✕</span> : <span className="ampliar">⤢</span>}
       </div>
 
       <div className="fila controles-vivo">
