@@ -314,8 +314,9 @@ Estado real del cluster (nov 2026). Verificar con `kubectl get ns` y `kubectl ge
 
 ### casa (PWA)
 - `apps/casa`: API Go (solo stdlib) que embebe la PWA React (`go:embed web/dist`). Un binario, imagen distroless nonroot, multi-arch. ADR-020.
-- Endpoints: `GET /api/estado` (cámara + focos + homelab en paralelo; cada fuente falla por separado), `POST /api/camara/deteccion {"activa":bool}`, `GET /api/camara/imagen`, `GET /api/camara/eventos/{id}/foto`, `POST /api/focos/{id} {"encendido","brillo","color":"#rrggbb","temp"}`.
+- Endpoints: `GET /api/estado` (cámara + focos + homelab en paralelo; cada fuente falla por separado), `POST /api/camara/deteccion {"activa":bool}`, `GET /api/camara/imagen`, `GET /api/camara/eventos/{id}/foto`, `GET /api/camara/vivo?calidad=sub|hd` (WebSocket → go2rtc `/api/ws`, MSE solo video; sub ~400 kbps, HD ~1 Mbps; la PWA lo corta a los 10 min), `POST /api/focos/{id} {"encendido","brillo","color":"#rrggbb","temp"}`.
 - Estado de la cámara = `detection_enabled` de `/api/stats` (real). Tarda ~15 s en reflejar un cambio: la PWA muestra "Aplicando…" hasta confirmarlo.
+- Video en vivo: proxy WebSocket en `vivo.go` (borra el header `Origin`: go2rtc rechaza orígenes distintos a su Host). Reproductor `VideoRTC` copiado de go2rtc v1.9.15 en `web/src/vendor/` — al actualizar go2rtc, volver a copiarlo. Sin WebRTC (necesita UDP directo al pod) ni audio (PCMA no va por MSE).
 - Focos por env `FOCOS=id:nombre:ip,...`. Imagen: `ghcr.io/krlosaren/aren-house-casa:<sha>`, la construye `.github/workflows/casa.yml` (runners de GitHub) en cada push a `apps/casa/**`. **Desplegar** = poner el SHA en `k8s-apps/casa/01-casa-deployment.yml` + `kubectl apply`.
 - Desarrollo local: `cd apps/casa/web && npm run build`, luego `FRIGATE_URL=https://frigate.tailb0ca85.ts.net PROMETHEUS_URL=https://prometheus.tailb0ca85.ts.net FOCOS=... go run .` (Go ≥1.25; los focos solo si la Mac está en "casona"). Con `npm run dev` (proxy `/api` → :8080) para hot reload.
 
