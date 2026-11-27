@@ -49,6 +49,19 @@ export interface Estado {
   homelab_error?: string;
 }
 
+export interface EventoLista extends Evento {
+  fin: number | null; // null = en curso
+  tiene_clip: boolean;
+}
+
+export interface SaludCamara {
+  horas: number;
+  paso_min: number;
+  tramos: { inicio: number; estado: "ok" | "lenta" | "caida" | "sin_datos" }[];
+  disponibilidad: number;
+  cortes: number;
+}
+
 export interface CambioFoco {
   encendido?: boolean;
   brillo?: number;
@@ -70,6 +83,8 @@ export const api = {
   estado: () => pedir<Estado>("/api/estado"),
   deteccion: (activa: boolean) =>
     pedir<{ activa: boolean }>("/api/camara/deteccion", { method: "POST", body: JSON.stringify({ activa }) }),
+  eventos: (limite = 20) => pedir<EventoLista[]>(`/api/camara/eventos?limite=${limite}`),
+  salud: (horas = 24) => pedir<SaludCamara>(`/api/camara/salud?horas=${horas}`),
   foco: (id: string, cambio: CambioFoco) =>
     pedir<EstadoFoco>(`/api/focos/${id}`, { method: "POST", body: JSON.stringify(cambio) }),
 };

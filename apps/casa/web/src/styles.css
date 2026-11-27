@@ -40,7 +40,8 @@ h1 { font-size: 28px; margin: 0; flex: 1; }
 h2 { font-size: 18px; margin: 0; }
 .sub, small { color: var(--sub); font-size: 13px; }
 small { display: block; }
-.error { color: var(--rojo); }
+.error { color: var(--rojo); overflow-wrap: anywhere; } /* URLs largas en errores no ensanchan la página */
+main > *, .tarjeta > * { min-width: 0; } /* hijos de grid: min-width:auto dejaba que el contenido desbordara */
 .ambar { color: var(--ambar); }
 
 .tarjeta {
@@ -121,6 +122,38 @@ input[type="range"] { width: 100%; accent-color: var(--azul); }
 .nodos { width: 100%; border-collapse: collapse; font-size: 15px; }
 .nodos th { text-align: left; font-size: 12px; color: var(--sub); font-weight: 500; padding-bottom: 4px; }
 .nodos td { padding: 6px 0; border-top: 1px solid var(--borde); }
+
+/* Eventos */
+.eventos { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.evento-celda {
+  position: relative; padding: 0; background: var(--fondo); border-radius: 10px; overflow: hidden;
+  text-align: left; color: inherit; display: grid;
+}
+.evento-celda img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; background: #000; }
+.evento-info { padding: 6px 8px; font-size: 14px; }
+.evento-celda:disabled { opacity: .7; }
+.play {
+  position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border-radius: 50%;
+  background: #0009; color: #fff; display: grid; place-items: center; font-size: 11px;
+}
+.visor {
+  position: fixed; inset: 0; z-index: 60; background: #000; display: grid; place-items: center;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.visor video { width: 100%; max-height: 85vh; }
+.visor .cerrar { pointer-events: auto; cursor: pointer; }
+.visor-pie { position: absolute; bottom: max(16px, env(safe-area-inset-bottom)); color: #ccc; font-size: 14px; margin: 0; }
+
+/* Salud 24 h */
+.salud { display: grid; gap: 4px; }
+.barra { display: flex; height: 22px; border-radius: 6px; overflow: hidden; gap: 0; background: var(--borde); }
+.tramo { flex: 1; min-width: 0; }
+.tramo.ok { background: var(--verde); }
+.tramo.lenta { background: var(--ambar); }
+.tramo.caida { background: var(--rojo); }
+.tramo.sin_datos { background: var(--borde); }
+.eje small { font-size: 11px; }
+.salud-error { font-size: 13px; margin: 0; }
 
 footer { text-align: center; padding-top: 4px; }
 footer a { color: inherit; }

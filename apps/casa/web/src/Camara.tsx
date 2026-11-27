@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type Estado, type EstadoCamara } from "./api";
 import EnVivo from "./EnVivo";
+import Salud from "./Salud";
 
 // En vivo se corta solo: sub ≈ 150 MB/h, HD ≈ 530 MB/h si se queda abierto por olvido
 const VIVO_MAX_MS = 10 * 60_000;
@@ -24,14 +25,6 @@ const CALIDAD: Record<string, { texto: string; clase: string }> = {
   fair: { texto: "regular", clase: "ambar" },
   poor: { texto: "mala", clase: "error" },
 };
-
-function haceCuanto(epoch: number) {
-  const s = Math.round(Date.now() / 1000 - epoch);
-  if (s < 60) return "hace un momento";
-  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
-  if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
-  return new Date(epoch * 1000).toLocaleDateString("es-CL", { weekday: "short", day: "numeric", month: "short" });
-}
 
 export default function Camara({ camara, error, homelab, onCambio, onAviso }: Props) {
   const [pendiente, setPendiente] = useState<{ armada: boolean; hasta: number } | null>(null);
@@ -98,7 +91,6 @@ export default function Camara({ camara, error, homelab, onCambio, onAviso }: Pr
     }
   };
 
-  const ev = camara.ultimo_evento;
   const sinVideo = camara.fps < 1;
 
   return (
@@ -155,16 +147,7 @@ export default function Camara({ camara, error, homelab, onCambio, onAviso }: Pr
         <div><dt>Reconexiones 1h</dt><dd>{camara.reconexiones_hora}</dd></div>
       </dl>
 
-      {ev && (
-        <a className="evento" href={`/api/camara/eventos/${ev.id}/foto`} target="_blank" rel="noreferrer">
-          {ev.tiene_foto && <img src={`/api/camara/eventos/${ev.id}/foto`} alt="" loading="lazy" />}
-          <span>
-            Último evento: <b>{ev.etiqueta}</b> {ev.score > 0 && `(${Math.round(ev.score * 100)}%)`}
-            <br />
-            <small>{haceCuanto(ev.inicio)}</small>
-          </span>
-        </a>
-      )}
+      <Salud />
 
       <button className={`grande ${camara.armada ? "secundario" : "primario"}`} onClick={alternar} disabled={!!pendiente}>
         {camara.armada ? "Desarmar" : "Armar"}

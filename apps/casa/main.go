@@ -30,7 +30,26 @@ type App struct {
 	frigate *Frigate
 	prom    *Prometheus
 	go2rtc  *Go2RTC
+	clips   *CacheClips
 	focos   []Foco
+}
+
+// GET /api/camara/salud?horas=24
+func (a *App) salud(w http.ResponseWriter, r *http.Request) {
+	horas := 24
+	if v, err := strconv.Atoi(r.URL.Query().Get("horas")); err == nil && v >= 1 && v <= 168 {
+		horas = v
+	}
+	paso := 5 * time.Minute
+	if horas > 24 {
+		paso = time.Duration(horas) * time.Minute * 60 / 288 // siempre ~288 tramos
+	}
+	s, err := a.prom.Salud(a.frigate.Camara, horas, paso)
+	if err != nil {
+		fallo(w, http.StatusBadGateway, err)
+		return
+	}
+	responder(w, http.StatusOK, s)
 }
 
 func env(clave, defecto string) string {
@@ -221,7 +240,9 @@ func main() {
 		prom:    &Prometheus{URL: env("PROMETHEUS_URL", "http://prometheus.monitoring.svc.cluster.local:9090"), http: cli},
 		// sub = 720p (~330 kbps), hd = 3MP (~1,2 Mbps); mismos nombres que en go2rtc.yaml
 		go2rtc: &Go2RTC{URL: go2rtcURL, Streams: map[string]string{"sub": camara + "_sub", "hd": camara}},
-		focos:  focos,
+		// emptyDir en k8s; los clips de eventos terminados no cambian
+		clips: &CacheClips{Dir: env("CLIPS_DIR", os.TempDir()), Max: 15, client: &http.Client{Timeout: 90 * time.Second}},
+		focos: focos,
 	}
 
 	mux := http.NewServeMux()
@@ -231,6 +252,10 @@ func main() {
 	mux.HandleFunc("GET /api/camara/imagen", app.imagenCamara)
 	mux.HandleFunc("GET /api/camara/eventos/{id}/foto", app.fotoEvento)
 	mux.HandleFunc("GET /api/camara/vivo", app.go2rtc.vivo) // WebSocket (MSE)
+	mux.HandleFunc("GET /api/camara/eventos", app.eventos)
+	mux.HandleFunc("GET /api/camara/eventos/{id}/miniatura", app.miniatura)
+	mux.HandleFunc("GET /api/camara/eventos/{id}/clip", app.clip)
+	mux.HandleFunc("GET /api/camara/salud", app.salud)
 	mux.HandleFunc("POST /api/focos/{id}", app.cambiarFoco)
 
 	// PWA: archivos estáticos; rutas desconocidas → index.html (SPA)

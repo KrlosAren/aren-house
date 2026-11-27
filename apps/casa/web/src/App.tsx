@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Estado } from "./api";
 import Camara from "./Camara";
+import Eventos from "./Eventos";
 import Focos from "./Focos";
 import Homelab from "./Homelab";
 
@@ -61,6 +62,7 @@ export default function App() {
       {estado && (
         <>
           <Camara camara={estado.camara} error={estado.camara_error} homelab={estado.homelab} onCambio={refrescar} onAviso={mostrarAviso} />
+          <Eventos ultimoId={estado.camara?.ultimo_evento?.id} />
           <Focos focos={estado.focos} onAviso={mostrarAviso} onCambio={refrescar} />
           <Homelab homelab={estado.homelab} error={estado.homelab_error} />
         </>
