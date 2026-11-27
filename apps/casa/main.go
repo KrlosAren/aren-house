@@ -155,7 +155,8 @@ func (a *App) imagenCamara(w http.ResponseWriter, r *http.Request) {
 	if v, err := strconv.Atoi(r.URL.Query().Get("alto")); err == nil && v >= 240 && v <= 720 {
 		alto = v
 	}
-	a.frigate.proxyImagen(w, fmt.Sprintf("/api/%s/latest.jpg?h=%d", a.frigate.Camara, alto))
+	// Frigate 0.18 usa `height` (un `h` se ignora en silencio y devuelve 1280x720 completo)
+	a.frigate.proxyImagen(w, fmt.Sprintf("/api/%s/latest.jpg?height=%d", a.frigate.Camara, alto))
 }
 
 func (a *App) fotoEvento(w http.ResponseWriter, r *http.Request) {
