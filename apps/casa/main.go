@@ -20,6 +20,9 @@ import (
 //go:embed all:web/dist
 var webDist embed.FS
 
+// SHA del commit; lo inyecta el build (-ldflags "-X main.version=..."). "dev" en local.
+var version = "dev"
+
 type App struct {
 	frigate *Frigate
 	prom    *Prometheus
@@ -71,6 +74,7 @@ type EstadoFoco struct {
 }
 
 type Estado struct {
+	Version      string         `json:"version"` // del servidor: la PWA lo compara con la suya
 	Hora         time.Time      `json:"hora"`
 	Camara       *EstadoCamara  `json:"camara,omitempty"`
 	CamaraError  string         `json:"camara_error,omitempty"`
@@ -82,7 +86,7 @@ type Estado struct {
 // Cada fuente se consulta en paralelo y falla por separado: si Prometheus no responde,
 // la cámara y los focos se siguen viendo.
 func (a *App) estado(w http.ResponseWriter, r *http.Request) {
-	e := Estado{Hora: time.Now(), Focos: make([]EstadoFoco, len(a.focos))}
+	e := Estado{Version: version, Hora: time.Now(), Focos: make([]EstadoFoco, len(a.focos))}
 	var wg sync.WaitGroup
 
 	wg.Add(1)
@@ -235,7 +239,7 @@ func main() {
 	})
 
 	addr := ":" + env("PORT", "8080")
-	log.Printf("casa escuchando en %s — focos: %d, frigate: %s", addr, len(focos), app.frigate.URL)
+	log.Printf("casa %s escuchando en %s — focos: %d, frigate: %s", version, addr, len(focos), app.frigate.URL)
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	log.Fatal(srv.ListenAndServe())
 }

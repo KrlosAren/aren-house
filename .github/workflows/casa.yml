@@ -40,6 +40,7 @@ jobs:
           platforms: linux/arm64,linux/amd64
           push: true
           tags: ghcr.io/krlosaren/aren-house-casa:${{ github.sha }}
+          build-args: VERSION=${{ github.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}

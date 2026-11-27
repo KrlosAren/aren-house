@@ -6,6 +6,11 @@ import Homelab from "./Homelab";
 
 const INTERVALO_MS = 5000;
 
+// SHA con el que se compiló ESTE frontend (VITE_VERSION en el Dockerfile). "dev" en local.
+const VERSION_WEB: string = import.meta.env.VITE_VERSION || "dev";
+const REPO = "https://github.com/KrlosAren/aren-house";
+const corto = (sha: string) => (sha === "dev" ? "dev" : sha.slice(0, 7));
+
 export default function App() {
   const [estado, setEstado] = useState<Estado | null>(null);
   const [sinConexion, setSinConexion] = useState(false);
@@ -60,6 +65,25 @@ export default function App() {
           <Homelab homelab={estado.homelab} error={estado.homelab_error} />
         </>
       )}
+
+      {/* El service worker deja la PWA con el frontend viejo hasta recargar: si el servidor
+          ya tiene otra versión, se ofrece recargar en vez de mezclar versiones en silencio. */}
+      {estado && estado.version !== VERSION_WEB && VERSION_WEB !== "dev" && (
+        <button className="grande primario" onClick={() => location.reload()}>
+          Hay una versión nueva ({corto(estado.version)}) — tocar para actualizar
+        </button>
+      )}
+
+      <footer className="sub">
+        {VERSION_WEB === "dev" ? (
+          "versión dev"
+        ) : (
+          <a href={`${REPO}/commit/${VERSION_WEB}`} target="_blank" rel="noreferrer">
+            versión {corto(VERSION_WEB)}
+          </a>
+        )}
+        {estado && estado.version !== VERSION_WEB && ` · servidor ${corto(estado.version)}`}
+      </footer>
 
       {aviso && <div className="aviso" role="alert">{aviso}</div>}
     </main>

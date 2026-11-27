@@ -40,6 +40,7 @@ export interface Nodo {
 }
 
 export interface Estado {
+  version: string; // SHA del servidor
   hora: string;
   camara?: EstadoCamara;
   camara_error?: string;
